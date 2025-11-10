@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en" class="h-full" data-accent="teal" data-bg="gradient">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IntelliHRTrack — Module 2: Biometrics & Attendance</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { inter: ["Inter", "ui-sans-serif", "system-ui"] },
+          keyframes: { shine: { '0%': { backgroundPosition: '200% 0' }, '100%': { backgroundPosition: '-200% 0' } }, float:{ '0%,100%':{ transform:'translateY(0px)'}, '50%':{ transform:'translateY(6px)'} } },
+          animation: { shine: 'shine 8s linear infinite', float:'float 6s ease-in-out infinite' }
+        }
+      }
+    };
+  </script>
+  <!-- Early apply of theme (dark/light), accent and background to avoid FOUC and persist across pages -->
+  <script>
+    (function(){
+      try{
+        const d = document.documentElement;
+        const theme = localStorage.getItem('ih_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        if(theme === 'dark') d.classList.add('dark'); else d.classList.remove('dark');
+        let accent = localStorage.getItem('ih_accent');
+        let bg = localStorage.getItem('ih_bg');
+        if(!accent || !bg){
+          try{ const prefs = JSON.parse(localStorage.getItem('ih_prefs')||'{}'); accent = accent || prefs.accent; bg = bg || prefs.bg; }catch{}
+        }
+        d.setAttribute('data-accent', accent || d.getAttribute('data-accent') || 'teal');
+        d.setAttribute('data-bg', bg || d.getAttribute('data-bg') || 'gradient');
+      }catch(e){}
+    })();
+  </script>
+
+  <!-- Icons + Charts (optional compatibility) -->
+  <script src="https://code.iconify.design/iconify-icon/1.0.8/iconify-icon.min.js"></script>
+
+  <!-- TensorFlow.js for liveness detection -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+
+  <style>
+    :root {
+      --accent:#14b8a6; --accent-to:#0ea5a0;
+      --card-bg:rgba(255,255,255,0.6); --card-border:rgba(255,255,255,0.35);
+      --noise:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 100 100"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity="0.035"/></svg>');
+    }
+    html[data-accent="teal"] { --accent:#14b8a6; --accent-to:#0ea5a0; }
+    html[data-accent="purple"] { --accent:#8b5cf6; --accent-to:#7c3aed; }
+    html[data-accent="rose"] { --accent:#f43f5e; --accent-to:#e11d48; }
+    html[data-accent="amber"] { --accent:#f59e0b; --accent-to:#d97706; }
+    html[data-bg="gradient"] body::before { content:""; position:fixed; inset:0; z-index:-2; background:
+      radial-gradient(1200px 600px at -10% -10%, rgba(20,184,166,.20), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(59,130,246,.16), transparent 60%),
+      linear-gradient(120deg, rgba(2,6,23,0.03), rgba(2,6,23,0.06)); }
+    html[data-bg="image"] body::before { content:""; position:fixed; inset:0; z-index:-2; background:url('https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&w=2100&q=60') center/cover no-repeat fixed; filter:saturate(1.05) brightness(0.95); }
+    body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:-1; background-image:var(--noise); }
+
+    .glass { background: var(--card-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--card-border); }
+    .dark .glass { background: rgba(15,23,42,0.60); border-color: rgba(255,255,255,0.08); }
+    .gradient-accent { background-image: linear-gradient(135deg, var(--accent), var(--accent-to)); }
+    .text-accent { color: var(--accent); }
+    .fancy-scroll::-webkit-scrollbar { height:10px; width:10px; }
+    .fancy-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent), var(--accent-to)); border-radius:9999px; }
+    .fancy-scroll::-webkit-scrollbar-track { background: transparent; }
+  /* Dark-mode form controls readability */
+  select, input, textarea { color: #111827; }
+  .dark select, .dark input, .dark textarea { background-color: rgba(255,255,255,0.08); color: #e5e7eb; border-color: rgba(255,255,255,0.15); }
+  .dark select option { background-color: #0f172a; color: #e5e7eb; }
+
+    /* Toasts */
+    #toastHost { position: fixed; top: 16px; right: 16px; display: grid; gap: 10px; z-index: 80; pointer-events: none; }
+    .toast { pointer-events: auto; min-width: 220px; max-width: 360px; padding: 10px 12px; border-radius: 12px; box-shadow: 0 10px 20px rgba(2,6,23,.2); border: 1px solid rgba(255,255,255,.35); }
+    .toast.info { background: var(--card-bg); }
+    .toast.success { background: linear-gradient(135deg, rgba(16,185,129,.15), rgba(20,184,166,.25)); }
+    .toast.warn { background: linear-gradient(135deg, rgba(245,158,11,.15), rgba(245,158,11,.28)); }
+    .toast.error { background: linear-gradient(135deg, rgba(244,63,94,.15), rgba(244,63,94,.28)); }
+
+    /* Top progress bar */
+    #topProgress { background-image: linear-gradient(90deg, var(--accent), var(--accent-to)); }
+
+    /* Buttons micro-interaction */
+    .ripple { position: relative; overflow: hidden; }
+    .ripple::after { content:''; position:absolute; inset:0; background: radial-gradient(circle, rgba(255,255,255,0.3) 1%, transparent 1%) center/15000%; opacity:0; transition: opacity .5s; }
+    .ripple:active::after { opacity:1; background-size:100%; transition:0s; }
+
+    /* Mobile FAB */
+    #mobileMenuFab { box-shadow: 0 12px 28px rgba(2,6,23,.25); }
+
+    /* Sidebar + neon divider (match dashboard) */
+    .neon-divider { height:1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity:.6; }
+    .shadow-glow { box-shadow: 0 10px 30px -5px rgba(16,185,129,0.35), 0 8px 16px -8px rgba(59,130,246,0.25); }
+    :root { --sidebar: 18rem; }
+    @media (min-width: 1024px){
+      aside[data-resizable]{ width: var(--sidebar) !important; }
+      main[data-shift]{ margin-left: var(--sidebar) !important; }
+    }
+    /* Accessibility helpers to match dashboard */
+    .high-contrast { --card-bg: rgba(255,255,255,0.95); --card-border: rgba(0,0,0,0.3); }
+    html.reduce-motion * { animation: none !important; transition-duration: 0.01ms !important; }
+    /* Wide scrollbar style (match dashboard) */
+    .big-scroll { scrollbar-width:auto; scrollbar-color: var(--accent) transparent; }
+    .big-scroll::-webkit-scrollbar { width:16px; height:16px; }
+    .big-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent), var(--accent-to)); border-radius:12px; border:3px solid transparent; background-clip: content-box; }
+  </style>
+</head>
+<body class="h-full font-inter bg-gray-50/60 dark:bg-slate-950 text-gray-800 dark:text-gray-100">
+  <!-- Decorative blobs -->
+  <div class="pointer-events-none fixed -z-10 inset-0 overflow-hidden">
+    <div class="absolute -top-24 -left-24 w-80 h-80 rounded-full blur-3xl opacity-40 gradient-accent animate-float"></div>
+    <div class="absolute bottom-0 right-0 w-96 h-96 rounded-full blur-3xl opacity-30 bg-gradient-to-br from-blue-500 to-indigo-500 animate-float" style="animation-delay:1s"></div>
+  </div>
+
+  <!-- Settings Modal (to match dashboard functionality) -->
+  <div id="settingsPanel" class="fixed inset-0 hidden items-center justify-center p-4 z-50">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative z-10 w-full max-w-lg glass rounded-2xl p-6 shadow-glow">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold flex items-center gap-2"><iconify-icon icon="ph:sliders-duotone" class="text-accent"></iconify-icon> Customize Layout</h3>
+        <button id="closeSettings" class="p-2 rounded-xl glass hover:shadow-glow"><iconify-icon icon="ph:x-duotone"></iconify-icon></button>
+      </div>
+      <div class="neon-divider my-4"></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Accent color</div>
+          <div class="flex gap-2">
+            <button data-accent="teal" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#14b8a6"></button>
+            <button data-accent="purple" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#8b5cf6"></button>
+            <button data-accent="rose" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#f43f5e"></button>
+            <button data-accent="amber" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#f59e0b"></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Background</div>
+          <div class="flex gap-2">
+            <button data-bg="gradient" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Gradient</button>
+            <button data-bg="image" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Image</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Density</div>
+          <div class="flex gap-2">
+            <button data-density="comfortable" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Comfortable</button>
+            <button data-density="compact" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Compact</button>
+            <button data-density="relaxed" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Relaxed</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Motion</div>
+          <label class="flex items-center gap-2 text-sm"><input id="motionToggle" type="checkbox" class="w-4 h-4"> Reduce motion</label>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Glass intensity</div>
+          <input id="glassIntensity" type="range" min="0.3" max="0.9" step="0.05" value="0.6" class="w-full" />
+          <div class="text-xs text-gray-500">Adjust card transparency</div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Sidebar width</div>
+          <div class="flex gap-2 flex-wrap">
+            <button data-sidebar="narrow" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Narrow</button>
+            <button data-sidebar="default" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Default</button>
+            <button data-sidebar="wide" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Wide</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">High contrast</div>
+          <label class="flex items-center gap-2 text-sm"><input id="contrastToggle" type="checkbox" class="w-4 h-4"> Enable high contrast</label>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Font size</div>
+          <div class="flex gap-2">
+            <button data-font="small" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Small</button>
+            <button data-font="base" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Base</button>
+            <button data-font="large" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Large</button>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Preferences</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="exportPrefs" class="px-3 py-2 rounded-xl glass hover:shadow-glow flex items-center gap-2"><iconify-icon icon="ph:arrow-square-out-duotone"></iconify-icon> Export</button>
+          <button id="importPrefsBtn" class="px-3 py-2 rounded-xl glass hover:shadow-glow flex items-center gap-2"><iconify-icon icon="ph:arrow-square-in-duotone"></iconify-icon> Import</button>
+          <input id="prefsFile" type="file" accept="application/json" class="hidden" />
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="resetSettings" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Reset</button>
+        <button id="saveSettings" class="px-3 py-2 rounded-xl text-white bg-accent hover:shadow-glow">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortcuts Cheatsheet -->
+  <div id="shortcutsModal" class="fixed inset-0 hidden items-center justify-center p-6 z-[76]">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative z-10 w-full max-w-xl glass rounded-2xl p-6">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold flex items-center gap-2"><iconify-icon icon="ph:keyboard-duotone" class="text-accent"></iconify-icon> Keyboard Shortcuts</h3>
+        <button id="closeShortcuts" class="p-2 rounded-xl glass"><iconify-icon icon="ph:x-duotone"></iconify-icon></button>
+      </div>
+      <div class="neon-divider my-4"></div>
+      <ul class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <li class="glass rounded-xl p-3"><strong>T</strong> — Toggle Theme</li>
+        <li class="glass rounded-xl p-3"><strong>?</strong> — This Cheatsheet</li>
+        <li class="glass rounded-xl p-3"><strong>G</strong> — Go to Kiosk</li>
+        <li class="glass rounded-xl p-3"><strong>L</strong> — Go to Logs</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="app" class="min-h-screen flex">
+    <!-- Standardized Sidebar -->
+    <aside data-resizable class="hidden lg:flex fixed left-0 top-0 h-screen w-72 flex-col gap-6 p-6 pr-3 overflow-y-auto fancy-scroll big-scroll">
+      <div class="glass rounded-2xl p-4 shadow-glow text-slate-800 dark:text-slate-100">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-xl gradient-accent text-white flex items-center justify-center font-extrabold shadow-lg">IH</div>
+          <div>
+            <h1 class="text-lg font-semibold tracking-tight">IntelliHRTrack</h1>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Admin Command Center</p>
+          </div>
+        </div>
+        <div class="neon-divider mt-4"></div>
+        <nav class="mt-3">
+          <ul class="space-y-1">
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="dashboard_final.html"><iconify-icon icon="ph:squares-four-duotone" class="text-accent"></iconify-icon> <span class="font-medium">Dashboard</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="#"><iconify-icon icon="ph:fingerprint-simple-duotone" class="text-accent"></iconify-icon> <span class="font-medium">BIOMETRICS &amp; ATTENDANCE</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="employee_final.html"><iconify-icon icon="ph:users-three-duotone" class="text-accent"></iconify-icon> <span>EMPLOYEE MANAGEMENT</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="schedule_final.html"><iconify-icon icon="ph:calendar-check-duotone" class="text-accent"></iconify-icon> <span>SCHEDULING &amp; SHIFTS</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="leave_final.html"><iconify-icon icon="ph:airplane-tilt-duotone" class="text-accent"></iconify-icon> <span>LEAVE &amp; ABSENCES</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="pay.html"><iconify-icon icon="ph:currency-dollar-duotone" class="text-accent"></iconify-icon> <span>PAYROLL &amp; FINANCE</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="ai_final.html"><iconify-icon icon="ph:brain-duotone" class="text-accent"></iconify-icon> <span>AI &amp; WORKFORCE ANALYTICS</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="report_final.html"><iconify-icon icon="ph:graph-duotone" class="text-accent"></iconify-icon> <span>REPORTS &amp; EXPORTS</span></a></li>
+            <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="system_final.html"><iconify-icon icon="ph:gear-six-duotone" class="text-accent"></iconify-icon> <span>SYSTEM ADMINISTRATION</span></a></li>
+          </ul>
+        </nav>
+        <div class="neon-divider my-4"></div>
+        <div class="space-y-3">
+          <button id="customizeLayout" class="w-full px-3 py-2 text-white rounded-xl gradient-accent hover:shadow-glow ring-1 ring-white/30 transition flex items-center justify-center gap-2"><iconify-icon icon="ph:sliders-duotone"></iconify-icon> <span>Customize Layout</span></button>
+          <button id="shortcutsBtn" class="w-full px-3 py-2 rounded-xl glass hover:shadow-glow transition flex items-center justify-center gap-2"><iconify-icon icon="ph:keyboard-duotone"></iconify-icon> <span>Keyboard Shortcuts</span></button>
+          <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+            <span class="flex items-center gap-2"><iconify-icon icon="ph:sun-dim-duotone" class="hidden dark:inline"></iconify-icon><iconify-icon icon="ph:moon-stars-duotone" class="dark:hidden"></iconify-icon> Light / Dark</span>
+            <button id="themeToggle" class="p-2 rounded-xl glass hover:shadow-glow transition flex items-center gap-2"><iconify-icon icon="ph:yin-yang-duotone" class="text-accent"></iconify-icon><span class="text-xs">Toggle</span></button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+  <main data-shift class="flex-1 p-4 md:p-6 lg:p-8 space-y-6">
+      <!-- Hero -->
+      <header id="section-top" class="relative overflow-hidden rounded-3xl glass p-6 md:p-8">
+        <div class="absolute inset-0 opacity-40 animate-shine" style="background-image: linear-gradient(90deg, var(--accent), rgba(255,255,255,0.2), var(--accent)); background-size: 200% 100%;"></div>
+        <div class="relative z-10 flex items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight">Biometrics & Attendance — Admin Console</h1>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Real-time biometrics with liveness, geo-tagging, encrypted templates, policies, and anomaly detection.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="openDocs" class="px-3 py-2 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple text-sm">Integration Docs</button>
+            <div class="w-10 h-10 rounded-full bg-gray-200/60 dark:bg-white/10 flex items-center justify-center">A</div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Grid -->
+      <section id="sec-kiosk" class="grid grid-cols-12 gap-6">
+        <!-- Column A: Kiosk camera, enrollment, fingerprint -->
+        <div class="col-span-12 lg:col-span-7 space-y-6">
+          <!-- Live Camera / Facial Recognition Card -->
+          <div class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h3 class="font-semibold">Facial Recognition Login (Kiosk Preview)</h3>
+                <div class="text-xs text-gray-500 dark:text-gray-400">Real-time face detection with liveness checking and geo-tagging</div>
+              </div>
+              <div class="flex items-center gap-2 text-sm">
+                <button id="startCam" class="px-3 py-1 rounded-xl bg-emerald-500 text-white ripple">Start Camera</button>
+                <button id="stopCam" class="px-3 py-1 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Stop</button>
+                <div id="camStatus" class="text-xs text-gray-500">Idle</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-12 gap-4">
+              <div class="col-span-12 md:col-span-7">
+                <div id="cameraBox" class="h-72 rounded-xl border border-dashed border-gray-200/70 dark:border-white/10 bg-slate-900 flex items-center justify-center text-slate-400 overflow-hidden relative">
+                  <canvas id="faceCanvas" class="w-full h-full object-cover hidden"></canvas>
+                  <video id="cameraVideo" autoplay playsinline class="w-full h-full object-cover hidden"></video>
+                  <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+                    <svg class="w-12 h-12 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 11c1.657 0 3-1.343 3-3S13.657 5 12 5s-3 1.343-3 3 1.343 3 3 3zM6 20v-2a4 4 0 014-4h4a4 4 0 014 4v2"/></svg>
+                    <div class="text-sm text-gray-400">Camera preview with liveness detection</div>
+                  </div>
+                  <div class="absolute top-3 left-3 bg-white/70 dark:bg-white/10 py-1 px-2 rounded-md text-xs">Device: Kiosk-01</div>
+                  <div class="absolute top-3 right-3 bg-white/70 dark:bg-white/10 py-1 px-2 rounded-md text-xs">Mode: Face</div>
+                </div>
+                <div class="mt-3 grid grid-cols-3 gap-3 text-sm">
+                  <div class="p-2 rounded-md bg-white/60 dark:bg-white/5 text-center">
+                    <div class="text-xs text-gray-500">Detected</div>
+                    <div id="detectedName" class="font-bold text-lg">—</div>
+                  </div>
+                  <div class="p-2 rounded-md bg-white/60 dark:bg-white/5 text-center">
+                    <div class="text-xs text-gray-500">Liveness</div>
+                    <div id="livenessScore" class="font-bold text-lg">—</div>
+                  </div>
+                  <div class="p-2 rounded-md bg-white/60 dark:bg-white/5 text-center">
+                    <div class="text-xs text-gray-500">Confidence</div>
+                    <div id="faceConfidence" class="font-bold text-lg">—</div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-span-12 md:col-span-5">
+                <div class="p-3 rounded-xl bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/10">
+                  <h4 class="font-semibold mb-2">Biometric Enrollment</h4>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">Register with encrypted template storage</div>
+                  <div class="space-y-2">
+                    <input id="enrollId" class="w-full px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Employee ID">
+                    <input id="enrollName" class="w-full px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Employee Name">
+                    <select id="enrollShift" class="w-full px-3 py-2 rounded-md border bg-white/70 dark:bg-white/10 dark:border-white/10 text-sm text-gray-800 dark:text-gray-100">
+                      <option value="day">Day Shift (8AM-5PM)</option>
+                      <option value="night">Night Shift (10PM-7AM)</option>
+                      <option value="rotational">Rotational Shift</option>
+                    </select>
+                    <div class="flex gap-2">
+                      <button id="captureFace" class="flex-1 py-2 rounded-md bg-blue-500 text-white text-sm ripple">Capture Face</button>
+                      <button id="captureFP" class="flex-1 py-2 rounded-md bg-yellow-500 text-white text-sm ripple">Capture Fingerprint</button>
+                    </div>
+                    <div class="text-xs text-gray-500">Templates encrypted with Web Crypto API</div>
+                    <div class="flex gap-2 mt-2">
+                      <button id="registerBtn" class="w-full py-2 rounded-md bg-emerald-500 text-white ripple">Register Employee</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-4 p-3 rounded-xl bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/10">
+                  <h4 class="font-semibold mb-2">Fingerprint Authentication</h4>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">With duplicate detection and encrypted storage</div>
+                  <div id="fpPad" class="w-full h-36 rounded-lg bg-gray-100/70 dark:bg-white/10 flex items-center justify-center text-sm text-gray-500">Place finger on reader</div>
+                  <div class="mt-3 flex gap-2">
+                    <button id="fpScan" class="flex-1 py-2 rounded-md bg-indigo-600 text-white ripple">Scan Finger</button>
+                    <button id="fpEnroll" class="flex-1 py-2 rounded-md bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Enroll FP</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Multi-Shift & Late Detection Panel -->
+          <div id="sec-shifts" class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold">Multi-Shift Support & Late Detection</h3>
+              <div class="text-xs text-gray-500">Automatic shift alignment and punctuality monitoring</div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div class="p-3 rounded-md bg-amber-50 dark:bg-amber-900/20">
+                <div class="font-medium text-amber-800 dark:text-amber-200">Late Arrivals Today</div>
+                <div id="lateCount" class="text-2xl font-bold text-amber-600">0</div>
+              </div>
+              <div class="p-3 rounded-md bg-rose-50 dark:bg-rose-900/20">
+                <div class="font-medium text-rose-800 dark:text-rose-200">Absences Today</div>
+                <div id="absenceCount" class="text-2xl font-bold text-rose-600">0</div>
+              </div>
+            </div>
+            <div class="mt-3">
+              <button id="runShiftCheck" class="w-full py-2 rounded-xl bg-blue-500 text-white ripple">Run Shift Analysis</button>
+            </div>
+          </div>
+
+          <!-- Device Health Panel -->
+          <div class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold">Device Health & Performance Monitor</h3>
+              <div class="text-xs text-gray-500">With device authentication layer</div>
+            </div>
+            <div id="deviceHealthList" class="grid gap-3"></div>
+            <div class="mt-3 flex gap-2">
+              <input id="regDeviceName" class="flex-1 px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Device Name">
+              <button id="registerDevice" class="px-3 py-2 rounded-xl bg-green-500 text-white ripple">Register Device</button>
+            </div>
+          </div>
+
+          <!-- Offline Caching -->
+          <div class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold">Offline Attendance Caching</h3>
+              <div class="text-xs text-gray-500">Resilient in low-connectivity sites</div>
+            </div>
+            <div class="text-sm text-gray-700 dark:text-gray-200">
+              <p class="mb-2">When network is unavailable, kiosk caches attendance locally with geo-tagging.</p>
+              <div class="flex flex-col sm:flex-row gap-2">
+                <button id="simulateOffline" class="py-2 px-3 rounded-xl bg-amber-500 text-white ripple">Simulate Offline Event</button>
+                <button id="syncNow" class="py-2 px-3 rounded-xl bg-emerald-500 text-white ripple">Force Sync Now</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Column B: Logs, rules, anomaly, export -->
+        <div class="col-span-12 lg:col-span-5 space-y-6">
+          <!-- Centralized Attendance Logs -->
+          <div id="sec-logs" class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Centralized Attendance Logs</h3>
+              <div class="text-xs text-gray-500">With geo-location and shift info</div>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <input id="filterEmp" class="flex-1 px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Search Employee or ID" />
+              <select id="filterMethod" class="px-3 py-2 rounded-md border bg-white/70 dark:bg-white/10 dark:border-white/10 text-sm text-gray-800 dark:text-gray-100">
+                <option value="">All Methods</option>
+                <option value="face">Face</option>
+                <option value="finger">Fingerprint</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="mt-3 max-h-72 overflow-auto border rounded-md bg-white/50 dark:bg-white/5 fancy-scroll">
+              <table class="w-full text-sm">
+                <thead class="text-xs text-gray-500">
+                  <tr><th class="p-2 text-left">Time</th><th class="p-2 text-left">Employee</th><th class="p-2 text-left">Method</th><th class="p-2 text-left">Shift</th><th class="p-2 text-left">Location</th></tr>
+                </thead>
+                <tbody id="attendanceTable" class="text-sm" aria-live="polite"></tbody>
+              </table>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <button id="exportCSV" class="flex-1 py-2 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Export CSV</button>
+              <button id="exportJSON" class="flex-1 py-2 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Export JSON</button>
+            </div>
+          </div>
+
+          <!-- Anomaly Detection & Integrity Checker -->
+          <div class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Anomaly Detection & Integrity Checker</h3>
+              <div class="text-xs text-gray-500">AI-powered risk alerts and fraud prevention</div>
+            </div>
+            <div class="mt-3 p-3 rounded-md bg-red-50 dark:bg-red-900/20">
+              <div id="anomalyResults" class="text-sm text-red-700 dark:text-red-300">No anomalies detected</div>
+            </div>
+            <div class="mt-3 grid gap-2">
+              <button id="runAnomalyScan" class="py-2 rounded-xl bg-red-500 text-white ripple">Run Anomaly Scan</button>
+              <button id="checkIntegrity" class="py-2 rounded-xl bg-orange-500 text-white ripple">Check Data Integrity</button>
+            </div>
+          </div>
+
+          <!-- Policy Engine -->
+          <div id="sec-policies" class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Hybrid Authentication Policy Engine</h3>
+              <div class="text-xs text-gray-500">Define per-department rules</div>
+            </div>
+            <div class="mt-3 grid gap-2 text-sm">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium">Finance</div>
+                  <div class="text-xs text-gray-400">Policy: Fingerprint only</div>
+                </div>
+                <label class="inline-flex items-center cursor-pointer">
+                  <input id="policyFinance" type="checkbox" class="hidden" checked>
+                  <span id="pillFinance" class="px-3 py-1 text-xs rounded-full bg-emerald-500 text-white toggle-pill">Fingerprint</span>
+                </label>
+              </div>
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium">Field Workers</div>
+                  <div class="text-xs text-gray-400">Policy: Face only</div>
+                </div>
+                <label class="inline-flex items-center cursor-pointer">
+                  <input id="policyField" type="checkbox" class="hidden">
+                  <span id="pillField" class="px-3 py-1 text-xs rounded-full bg-gray-200 dark:bg-gray-700 toggle-pill">Face</span>
+                </label>
+              </div>
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium">General</div>
+                  <div class="text-xs text-gray-400">Policy: Hybrid (either)</div>
+                </div>
+                <label class="inline-flex items-center cursor-pointer">
+                  <input id="policyGeneral" type="checkbox" class="hidden" checked>
+                  <span id="pillGeneral" class="px-3 py-1 text-xs rounded-full bg-emerald-500 text-white toggle-pill">Hybrid</span>
+                </label>
+              </div>
+              <button id="savePolicies" class="mt-2 py-2 rounded-xl bg-indigo-600 text-white ripple">Save Policies</button>
+            </div>
+          </div>
+
+          <!-- Audit Trail & Export -->
+          <div class="p-4 rounded-2xl glass">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Comprehensive Biometric Audit Trail</h3>
+              <div class="text-xs text-gray-500">Record every action: enroll, verify, fail, override</div>
+            </div>
+            <div class="mt-3 max-h-48 overflow-auto border rounded-md bg-white/50 dark:bg-white/5 p-2 text-sm fancy-scroll">
+              <ul id="auditTrail" class="space-y-2 text-xs" aria-live="polite"></ul>
+            </div>
+            <div class="mt-3 grid gap-2">
+              <button id="clearTrail" class="py-2 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Clear Trail (Demo)</button>
+              <button id="downloadTrail" class="py-2 rounded-xl bg-emerald-500 text-white ripple">Download Trail JSON</button>
+            </div>
+          </div>
+
+          <!-- Manual Verification & Override -->
+          <div id="sec-override" class="p-4 rounded-2xl glass">
+            <h3 class="font-semibold">Manual Verification & Override Workflow</h3>
+            <p class="text-xs text-gray-500">HR can manually verify/override attendance; all overrides are audited.</p>
+            <div class="mt-3 grid gap-2">
+              <input id="overrideEmp" class="px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Employee ID" />
+              <textarea id="overrideReason" class="px-3 py-2 rounded-md border bg-transparent text-sm" placeholder="Reason for override"></textarea>
+              <div class="flex gap-2">
+                <button id="applyOverride" class="flex-1 py-2 rounded-xl bg-rose-500 text-white ripple">Apply Override</button>
+                <button id="cancelOverride" class="flex-1 py-2 rounded-xl bg-white/70 dark:bg-white/10 border border-white/40 dark:border-white/10 ripple">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="pb-8 pt-2 text-xs text-gray-500 dark:text-gray-400 text-center">© IntelliHRTrack • Module 2 — Demonstration build. Integrate with backend for production.</footer>
+    </main>
+  </div>
+
+  <!-- Top Progress Bar -->
+  <div id="topProgress" class="fixed top-0 left-0 h-[3px] w-0 z-[70] opacity-0 transition-[width,opacity] duration-300"></div>
+  <!-- Toast Host -->
+  <div id="toastHost" aria-live="polite"></div>
+  <!-- Back to Top Button -->
+  <button id="backToTop" class="hidden fixed bottom-6 right-6 px-3 py-2 rounded-xl glass gradient-accent text-white">Top</button>
+  <!-- Mobile Sidebar FAB -->
+  <button id="mobileMenuFab" class="lg:hidden fixed bottom-6 left-6 p-4 rounded-full gradient-accent text-white z-[70]" aria-label="Open Menu">
+    <iconify-icon icon="ph:list-duotone" class="text-xl"></iconify-icon>
+  </button>
+  <!-- Mobile Sidebar -->
+  <div id="mobileSidebar" class="fixed inset-0 z-[85] hidden">
+    <div id="mobileBackdrop" class="absolute inset-0 bg-slate-900/50"></div>
+    <aside id="mobilePanel" class="absolute left-0 top-0 h-full w-72 p-4 pr-3 glass overflow-y-auto transform -translate-x-full transition-transform duration-300">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg gradient-accent text-white flex items-center justify-center font-bold">IH</div>
+          <span class="text-sm font-semibold">IntelliHRTrack</span>
+        </div>
+        <button id="closeMobile" class="px-2 py-1 rounded-lg bg-white/70 dark:bg-white/10">Close</button>
+      </div>
+      <nav id="mobileNavContent" class="grid gap-1 text-sm">
+        <a href="dashboard_final.html" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Dashboard</a>
+        <a data-target="#sec-kiosk" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Kiosk & Enrollment</a>
+        <a data-target="#sec-shifts" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Shift & Health</a>
+        <a data-target="#sec-logs" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Logs & Anomaly</a>
+        <a data-target="#sec-policies" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Policies & Audit</a>
+        <a data-target="#sec-override" class="px-3 py-2 rounded-lg hover:bg-white/60 dark:hover:bg-white/10">Overrides</a>
+      </nav>
+    </aside>
+  </div>
+
+  <!-- TOOLTIP container (reserved) -->
+  <div id="globalTooltip" class="hidden"></div>
+
+  <script>
+    // ---------- THEME ----------
+    const themeToggle = document.getElementById('themeToggle');
+    themeToggle?.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('ih_theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    });
+    if (localStorage.getItem('ih_theme') === 'dark') document.documentElement.classList.add('dark');
+
+    // ---------- TOASTS ----------
+    const toastHost = document.getElementById('toastHost');
+    function showToast(msg, type='info', duration=2400){
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.innerHTML = `<div class="text-sm">${msg}</div>`;
+      toastHost.appendChild(t);
+      setTimeout(()=>{ t.style.opacity = '0'; t.style.transform = 'translateY(-6px)'; setTimeout(()=> t.remove(), 300); }, duration);
+    }
+
+    // ---------- TOP PROGRESS ----------
+    const topProgress = document.getElementById('topProgress');
+    function progressStart(){ topProgress.style.transition='none'; topProgress.style.width='0'; topProgress.style.opacity='1'; requestAnimationFrame(()=>{ topProgress.style.transition='width .8s ease'; topProgress.style.width='75%'; }); }
+    function progressDone(){ topProgress.style.width='100%'; setTimeout(()=>{ topProgress.style.opacity='0'; topProgress.style.width='0'; }, 350); }
+
+    // ---------- BACK TO TOP ----------
+    const backToTop = document.getElementById('backToTop');
+    window.addEventListener('scroll', ()=>{ if(window.scrollY > 400) backToTop.classList.remove('hidden'); else backToTop.classList.add('hidden'); });
+    backToTop.addEventListener('click', ()=> window.scrollTo({top:0, behavior:'smooth'}));
+
+    // ---------- NAV SMOOTH SCROLL (desktop + mobile) ----------
+    const asideLinks = Array.from(document.querySelectorAll('aside a[data-target]'));
+    const mobileLinks = Array.from(document.querySelectorAll('#mobileNavContent a[data-target]'));
+    function wireSmooth(list){
+      list.forEach(a=> a.addEventListener('click', (e)=>{
+        e.preventDefault(); const sel = a.getAttribute('data-target'); const el = document.querySelector(sel);
+        if(el){ window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 12, behavior:'smooth'}); closeMobile(); }
+      }));
+    }
+    wireSmooth(asideLinks); wireSmooth(mobileLinks);
+
+    // ---------- MOBILE SIDEBAR ----------
+    const mobileSidebar = document.getElementById('mobileSidebar');
+    const mobilePanel = document.getElementById('mobilePanel');
+    const mobileBackdrop = document.getElementById('mobileBackdrop');
+    const closeMobileBtn = document.getElementById('closeMobile');
+    const mobileFab = document.getElementById('mobileMenuFab');
+    function openMobile(){
+      // Clone desktop nav for consistency with dashboard
+      const desk = document.querySelector('aside nav ul');
+      const mobileNavContent = document.getElementById('mobileNavContent');
+      if(desk && mobileNavContent){
+        mobileNavContent.innerHTML='';
+        mobileNavContent.appendChild(desk.cloneNode(true));
+        mobileNavContent.querySelectorAll('a').forEach(a=>{
+          a.addEventListener('click', (ev)=>{
+            const tgt = a.getAttribute('data-target');
+            if(tgt){ ev.preventDefault(); const el = document.querySelector(tgt); if(el){ el.scrollIntoView({behavior:'smooth', block:'start'}); }
+              mobileNavContent.querySelectorAll('a').forEach(n=> n.classList.remove('ring','ring-white/30'));
+              a.classList.add('ring','ring-white/30');
+            }
+            closeMobile();
+          });
+        });
+      }
+      mobileSidebar.classList.remove('hidden');
+      setTimeout(()=> mobilePanel.classList.remove('-translate-x-full'), 10);
+    }
+    function closeMobile(){ mobilePanel.classList.add('-translate-x-full'); setTimeout(()=> mobileSidebar.classList.add('hidden'), 250); }
+    mobileFab?.addEventListener('click', openMobile);
+    mobileBackdrop?.addEventListener('click', closeMobile);
+    closeMobileBtn?.addEventListener('click', closeMobile);
+
+    // =====================================================================
+    //  MODULE 2 — Enhanced JS with all 20 features (polished UX + toasts)
+    // =====================================================================
+
+    // ---------- ENHANCED STATE ----------
+    const devices = [
+      { id: 'Kiosk-01', type:'camera', status:'online', lastSeen:'10s', tempC:36, registered: true },
+      { id: 'FP-Bridge-01', type:'fingerprint', status:'online', lastSeen:'30s', tempC:35, registered: true },
+      { id: 'Tablet-Field-03', type:'camera', status:'offline', lastSeen:'20m', tempC: null, registered: false }
+    ];
+
+    const attendanceLogs = [];
+    const auditTrail = [];
+    const offlineCacheKey = 'ih_offline_cache_demo';
+    const DEVICE_REGISTRY = [];
+    const ENCRYPTED_TEMPLATES = {};
+    let encryptionKey = null;
+
+    // Shift configurations
+    const SHIFTS = {
+      day: { name:'Day Shift', start: '08:00', end: '17:00', gracePeriod: 15 },
+      night: { name:'Night Shift', start: '22:00', end: '07:00', gracePeriod: 15 },
+      rotational: { name:'Rotational Shift', start: '07:00', end: '16:00', gracePeriod: 15 }
+    };
+
+    // Employee roster for absence detection
+    const EMPLOYEE_ROSTER = [
+      { id: 'EMP001', name: 'M. Santos', shift: 'day', department: 'Finance' },
+      { id: 'EMP002', name: 'J. Cruz', shift: 'night', department: 'Field Workers' },
+      { id: 'EMP003', name: 'L. Gomez', shift: 'rotational', department: 'General' },
+      { id: 'EMP004', name: 'A. Reyes', shift: 'day', department: 'General' }
+    ];
+
+    // ---------- DOM refs ----------
+    const cameraVideo = document.getElementById('cameraVideo');
+    const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+    const camStatus = document.getElementById('camStatus');
+
+    const detectedName = document.getElementById('detectedName');
+    const livenessScoreElm = document.getElementById('livenessScore');
+    const faceConfidence = document.getElementById('faceConfidence');
+
+    const deviceHealthList = document.getElementById('deviceHealthList');
+    const attendanceTable = document.getElementById('attendanceTable');
+    const auditTrailElm = document.getElementById('auditTrail');
+    const anomalyResults = document.getElementById('anomalyResults');
+    const lateCount = document.getElementById('lateCount');
+    const absenceCount = document.getElementById('absenceCount');
+
+    // ---------- Geo-Tagged Attendance ----------
+    async function getCurrentGeo() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+          resolve({ lat: 14.5995, lng: 120.9842, accuracy: 0, source: 'fallback' });
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, source: 'gps', timestamp: new Date().toISOString() });
+          },
+          async _err => {
+            try {
+              const res = await fetch('https://ipapi.co/json/');
+              const data = await res.json();
+              resolve({ lat: data.latitude, lng: data.longitude, accuracy: 5000, source: 'ip', city: data.city, country: data.country_name });
+            } catch { resolve({ lat: 14.5995, lng: 120.9842, accuracy: 0, source: 'fallback' }); }
+          }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+      });
+    }
+
+    // ---------- Shift helpers ----------
+    function parseShiftTime(refDate, hhmm) {
+      const [hh, mm] = hhmm.split(':').map(Number);
+      const d = new Date(refDate); d.setHours(hh, mm, 0, 0); return d;
+    }
+    function evaluateAttendanceForShift(entry, scheduledShift) {
+      const checkTime = new Date(entry.timestamp);
+      let start = parseShiftTime(checkTime, scheduledShift.start);
+      let end = parseShiftTime(checkTime, scheduledShift.end);
+      if (scheduledShift.end <= scheduledShift.start) {
+        if (checkTime.getHours() < start.getHours()) start.setDate(start.getDate() - 1); else end.setDate(end.getDate() + 1);
+      }
+      const gracePeriodMs = (scheduledShift.gracePeriod || 15) * 60 * 1000;
+      const isLate = checkTime > (start.getTime() + gracePeriodMs);
+      const isEarly = checkTime < start;
+      const isOnTime = !isLate && !isEarly;
+      const minutesLate = isLate ? Math.round((checkTime - (start.getTime() + gracePeriodMs)) / 60000) : 0;
+      return { isLate, isEarly, isOnTime, scheduledStart: start, minutesLate, gracePeriod: gracePeriodMs / 60000 };
+    }
+    function detectAbsencesForDate(dateStr = new Date().toISOString().split('T')[0]) {
+      const absences = []; const lateArrivals = [];
+      EMPLOYEE_ROSTER.forEach(emp => {
+        const empLogs = attendanceLogs.filter(r => r.employeeId === emp.id && r.timestamp.startsWith(dateStr));
+        const hasLog = empLogs.length > 0;
+        if (!hasLog) { absences.push({...emp, date: dateStr}); } else {
+          const shift = SHIFTS[emp.shift];
+          empLogs.forEach(log => { const ev = evaluateAttendanceForShift(log, shift); if (ev.isLate) lateArrivals.push({ employee: emp, log, minutesLate: ev.minutesLate }); });
+        }
+      });
+      if (absences.length) pushAuditEvent('absence.detect', `Absences on ${dateStr}: ${absences.length} employees`);
+      if (lateArrivals.length) pushAuditEvent('late.detect', `Late arrivals: ${lateArrivals.length} employees`);
+      absenceCount.textContent = absences.length; return { absences, lateArrivals };
+    }
+    function updateLateCount() {
+      const today = new Date().toISOString().split('T')[0];
+      const lateToday = attendanceLogs.filter(r => r.timestamp.startsWith(today) && r.status === 'late').length;
+      lateCount.textContent = lateToday;
+    }
+
+    // ---------- Device registration (auth layer) ----------
+    document.getElementById('registerDevice').addEventListener('click', async ()=>{
+      progressStart();
+      const deviceId = document.getElementById('regDeviceName').value || ('Kiosk-' + Math.floor(Math.random()*999));
+      const deviceFingerprint = await generateDeviceFingerprint();
+      const deviceToken = 'DEV-' + Math.random().toString(36).slice(2,12).toUpperCase();
+      const device = { id: deviceId, token: deviceToken, registeredAt: new Date().toISOString(), status:'online', fingerprint: deviceFingerprint, lastAuth: new Date().toISOString() };
+      DEVICE_REGISTRY.push(device);
+      localStorage.setItem('device_token', deviceToken);
+      localStorage.setItem('device_fingerprint', JSON.stringify(deviceFingerprint));
+      renderDeviceHealth();
+      pushAuditEvent('device.register', `Device ${deviceId} registered with enhanced authentication`);
+      showToast(`Device ${deviceId} registered. Token: ${deviceToken}`, 'success');
+      setTimeout(progressDone, 500);
+    });
+    async function generateDeviceFingerprint() {
+      const components = [
+        { type:'screen', width: screen.width, height: screen.height, colorDepth: screen.colorDepth },
+        { type:'platform', platform: navigator.platform, userAgent: navigator.userAgent.substring(0, 100) },
+        { type:'timezone', offset: new Date().getTimezoneOffset(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+      ];
+      const fingerprintString = JSON.stringify(components);
+      const data = new TextEncoder().encode(fingerprintString);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
+      return { components, hash: hashHex };
+    }
+
+    // ---------- Fingerprint duplicate detection helpers ----------
+    function normalizeTemplate(t){ return (t||'').replace(/[^a-z0-9]/gi,'').toLowerCase().slice(0, 32); }
+    function similarityScore(a, b){ a=normalizeTemplate(a); b=normalizeTemplate(b); if(!a.length||!b.length) return 0; const m=[]; for(let i=0;i<=b.length;i++){m[i]=[i];} for(let j=0;j<=a.length;j++){m[0][j]=j;} for(let i=1;i<=b.length;i++){ for(let j=1;j<=a.length;j++){ m[i][j] = b.charAt(i-1)===a.charAt(j-1) ? m[i-1][j-1] : Math.min(m[i-1][j-1]+1, m[i][j-1]+1, m[i-1][j]+1); } } const d=m[b.length][a.length]; const L=Math.max(a.length,b.length); return 1 - (d/L); }
+    function findPotentialDuplicate(newTpl, currentEmployeeId=null){ const dups=[]; for(const empId in ENCRYPTED_TEMPLATES){ if(empId===currentEmployeeId) continue; if(!ENCRYPTED_TEMPLATES[empId].finger) continue; const stored=ENCRYPTED_TEMPLATES[empId].finger.data; const score=Math.round(similarityScore(newTpl, stored)*100); if(score>70) dups.push({empId, score, employee: EMPLOYEE_ROSTER.find(e=>e.id===empId)?.name||empId}); } return dups.length?dups:null; }
+
+    // ---------- Liveness detection ----------
+    let detectorModel = null;
+    let livenessState = { blinkCount: 0, lastBlink: 0, earHistory: [], headMovement: { lastPosition: null, movementCount: 0 }, expressionChanges: 0 };
+    async function loadFaceLandmarkModel() {
+      try { detectorModel = await faceLandmarksDetection.load(faceLandmarksDetection.SupportedPackages.mediapipeFacemesh, { maxFaces: 1 }); pushAuditEvent('liveness.model.loaded', 'Face landmark model loaded'); return true; } catch { pushAuditEvent('liveness.model.error', 'Failed to load face model'); return false; }
+    }
+    function eyeAspectRatio(eyePoints){ if(!eyePoints||eyePoints.length<6) return 0; const a=Math.hypot(eyePoints[1][0]-eyePoints[5][0], eyePoints[1][1]-eyePoints[5][1]); const b=Math.hypot(eyePoints[2][0]-eyePoints[4][0], eyePoints[2][1]-eyePoints[4][1]); const c=Math.hypot(eyePoints[0][0]-eyePoints[3][0], eyePoints[0][1]-eyePoints[3][1]); return (a+b)/(2.0*c+1e-6); }
+    function calculateHeadPose(mesh){ if(!mesh||mesh.length<10) return null; const nose=mesh[1]; const leftEye=mesh[33]; const rightEye=mesh[263]; const mouthLeft=mesh[61]; const mouthRight=mesh[291]; const eyeDistance=Math.hypot(leftEye[0]-rightEye[0], leftEye[1]-rightEye[1]); const mouthDistance=Math.hypot(mouthLeft[0]-mouthRight[0], mouthLeft[1]-mouthRight[1]); return { nose, eyeDistance, mouthDistance, ratio: mouthDistance/eyeDistance }; }
+    async function runLivenessOnFrame(videoEl){ if(!detectorModel||videoEl.readyState<2) return null; try{ const predictions=await detectorModel.estimateFaces({ input: videoEl, returnTensors:false, flipHorizontal:false, predictIrises:true }); if(!predictions||!predictions.length) return null; const mesh=predictions[0].scaledMesh; const leftEye=[mesh[33],mesh[160],mesh[158],mesh[133],mesh[153],mesh[144]]; const rightEye=[mesh[362],mesh[385],mesh[387],mesh[263],mesh[373],mesh[380]]; const ear=(eyeAspectRatio(leftEye)+eyeAspectRatio(rightEye))/2; livenessState.earHistory.push(ear); if(livenessState.earHistory.length>10) livenessState.earHistory.shift(); const avgEar=livenessState.earHistory.reduce((a,b)=>a+b,0)/livenessState.earHistory.length; const isBlink=ear<avgEar*0.6 && Date.now()-livenessState.lastBlink>300; if(isBlink){ livenessState.blinkCount++; livenessState.lastBlink=Date.now(); } const headPose=calculateHeadPose(mesh); if(headPose&&livenessState.headMovement.lastPosition){ const mv=Math.hypot(headPose.nose[0]-livenessState.headMovement.lastPosition.nose[0], headPose.nose[1]-livenessState.headMovement.lastPosition.nose[1]); if(mv>5) livenessState.headMovement.movementCount++; } livenessState.headMovement.lastPosition=headPose; const blinkScore=Math.min(livenessState.blinkCount*25, 40); const movementScore=Math.min(livenessState.headMovement.movementCount*10, 30); const baseScore=30; const score=Math.min(blinkScore+movementScore+baseScore,100); const isLive=score>=60; return { ear, blinkCount:livenessState.blinkCount, headMovement:livenessState.headMovement.movementCount, livenessScore:score, isLive }; }catch{ return null; } }
+
+    // ---------- Encryption helpers ----------
+    async function generateEncryptionKey(){ try{ encryptionKey = await crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']); const jwk = await crypto.subtle.exportKey('jwk', encryptionKey); localStorage.setItem('ih_encryption_key', JSON.stringify(jwk)); return encryptionKey; }catch{ return null; } }
+    async function loadEncryptionKey(){ try{ const keyData=localStorage.getItem('ih_encryption_key'); if(!keyData) return await generateEncryptionKey(); const jwk=JSON.parse(keyData); encryptionKey = await crypto.subtle.importKey('jwk', jwk, { name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']); return encryptionKey; }catch{ return await generateEncryptionKey(); } }
+    async function encryptTemplate(plaintext){ if(!encryptionKey) await loadEncryptionKey(); if(!encryptionKey) return null; try{ const iv=crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, encryptionKey, new TextEncoder().encode(plaintext)); return { iv: Array.from(iv).map(b=>b.toString(16).padStart(2,'0')).join(''), data: Array.from(new Uint8Array(ct)).map(b=>b.toString(16).padStart(2,'0')).join(''), algorithm:'AES-GCM-256' }; }catch{ return null; } }
+
+    // ---------- Anomaly + Integrity ----------
+    function runRuleBasedAnomalyScan(){ const alerts=[]; const now=new Date(); const today=now.toISOString().split('T')[0]; const byEmp={}; attendanceLogs.forEach(e=>{ if(!byEmp[e.employee]) byEmp[e.employee]=[]; byEmp[e.employee].push(e); }); for(const emp in byEmp){ const arr=byEmp[emp].sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)); for(let i=1;i<arr.length;i++){ const timeDiff=(new Date(arr[i].timestamp)-new Date(arr[i-1].timestamp))/1000; const dist=calculateDistance(arr[i-1].geo, arr[i].geo); const minTravelTime=calculateMinTravelTime(dist); if(timeDiff<minTravelTime && arr[i].device!==arr[i-1].device){ alerts.push({ type:'IMPOSSIBLE_TRAVEL', employee:emp, details:`${dist.toFixed(1)}km in ${timeDiff}s (min ${minTravelTime}s)`, severity:'HIGH' }); } } } for(const emp in byEmp){ const recent=byEmp[emp].filter(log=> new Date(log.timestamp) > new Date(now.getTime()-2*60*60*1000) ); const devicesUsed=[...new Set(recent.map(log=>log.device))]; if(devicesUsed.length>2){ alerts.push({ type:'MULTIPLE_DEVICES', employee:emp, details:`${devicesUsed.length} devices: ${devicesUsed.join(', ')}`, severity:'MEDIUM' }); } }
+      for(const emp of EMPLOYEE_ROSTER){ const empLogs=attendanceLogs.filter(log=>log.employeeId===emp.id && log.timestamp.startsWith(today)); if(empLogs.length>0){ const first=new Date(empLogs[0].timestamp); const last=new Date(empLogs[empLogs.length-1].timestamp); const hours=(last-first)/(1000*60*60); if(hours>14){ alerts.push({ type:'EXCESSIVE_HOURS', employee:emp.name, details:`Worked ${hours.toFixed(1)}h`, severity:'MEDIUM' }); } } }
+      attendanceLogs.forEach(e=>{ if(e.confidence && e.confidence<50){ alerts.push({ type:'LOW_CONFIDENCE', employee:e.employee, details:`Confidence ${e.confidence}%`, severity:'LOW' }); } });
+      if(alerts.length){ const high=alerts.filter(a=>a.severity==='HIGH'); anomalyResults.textContent = high.length? `🚨 ${high.length} HIGH severity alerts` : `⚠️ ${alerts.length} anomalies detected`; anomalyResults.parentElement.classList.add('bg-red-100','dark:bg-red-900/30'); const details=alerts.map(a=>`${a.severity}: ${a.type} - ${a.employee} (${a.details})`).join('\n'); pushAuditEvent('anomaly.scan', `Found ${alerts.length} anomalies: ${details}`); showToast(anomalyResults.textContent, 'warn'); } else { anomalyResults.textContent='No anomalies detected'; anomalyResults.parentElement.classList.remove('bg-red-100','dark:bg-red-900/30'); showToast('No anomalies detected','success'); }
+      return alerts; }
+    function calculateDistance(geo1, geo2){ if(!geo1||!geo2) return 0; const R=6371; const dLat=(geo2.lat-geo1.lat)*Math.PI/180; const dLon=(geo2.lng-geo1.lng)*Math.PI/180; const a = Math.sin(dLat/2)**2 + Math.cos(geo1.lat*Math.PI/180)*Math.cos(geo2.lat*Math.PI/180)*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+    function calculateMinTravelTime(distanceKm){ return Math.max(300, distanceKm*300); }
+    function checkDataIntegrity(){ const issues=[]; const timeMap={}; attendanceLogs.forEach(log=>{ const key=`${log.employee}-${log.timestamp}`; if(timeMap[key]) issues.push(`Duplicate timestamp for ${log.employee} at ${log.timestamp}`); timeMap[key]=true; }); const now=new Date(); attendanceLogs.forEach(log=>{ if(new Date(log.timestamp)>now) issues.push(`Future timestamp for ${log.employee}: ${log.timestamp}`); }); attendanceLogs.forEach(log=>{ if(!log.employee || !log.timestamp || !log.method) issues.push(`Incomplete record for employee: ${log.employee||'Unknown'}`); }); if(issues.length){ issues.slice(0, 5).forEach(issue=>pushAuditEvent('integrity.issue', issue)); showToast(`Data issues found: ${issues.length}`, 'warn'); } else { pushAuditEvent('integrity.check','All data integrity checks passed'); showToast('No data integrity issues found','success'); } return issues; }
+
+    // ---------- Audit trail ----------
+    function pushAuditEvent(type, details){ const evt = { timestamp: new Date().toISOString(), type, details, user: 'system', ip: '127.0.0.1' }; auditTrail.unshift(evt); auditTrailElm.insertAdjacentHTML('afterbegin', `<li class="p-2 rounded-md bg-white/50 dark:bg-white/5"><div class="font-medium">${type}</div><div class="text-xs text-gray-500">${details}</div><div class="text-xs text-gray-400">${new Date(evt.timestamp).toLocaleString()}</div></li>`); if(auditTrail.length>200) auditTrail.pop(); localStorage.setItem('ih_audit_demo', JSON.stringify(auditTrail.slice(0,200))); }
+    function renderDeviceHealth(){ deviceHealthList.innerHTML=''; for(const d of devices){ const el=document.createElement('div'); el.className='flex items-center justify-between p-2 rounded-md bg-white/50 dark:bg-white/5'; el.innerHTML = `<div><div class="font-medium">${d.id} <span class="text-xs text-gray-400">(${d.type})</span> ${d.registered ? '🔒' : '⚠️'}</div><div class="text-xs text-gray-400">Last: ${d.lastSeen} | Temp: ${d.tempC || 'N/A'}°C</div></div><div class="text-sm ${d.status==='online'?'text-green-500':'text-rose-400'}">${d.status}</div>`; deviceHealthList.appendChild(el);} }
+
+    // ---------- Camera start/stop ----------
+    let streamRef = null;
+    const startCamBtn = document.getElementById('startCam');
+    const stopCamBtn = document.getElementById('stopCam');
+    async function startCamera(){ try{ const constraints={ video:{ width:640, height:480, facingMode:'user', frameRate:{ideal:30} }, audio:false }; const stream=await navigator.mediaDevices.getUserMedia(constraints); streamRef=stream; cameraVideo.srcObject=stream; cameraVideo.classList.remove('hidden'); cameraPlaceholder.classList.add('hidden'); camStatus.textContent='Running'; const modelLoaded = await loadFaceLandmarkModel(); if(modelLoaded){ startFaceDetection(); } else { mockFaceDetectionLoop(); } pushAuditEvent('camera.start','Camera started with enhanced liveness detection'); }catch(err){ camStatus.textContent='Error'; pushAuditEvent('camera.error',`Failed to start camera: ${err.message}`); showToast('Unable to access camera. Check permissions.','error'); } }
+    function startFaceDetection(){ if(window.__faceDetectInterval__) clearInterval(window.__faceDetectInterval__); window.__faceDetectInterval__ = setInterval(async ()=>{ if(cameraVideo.readyState<2) return; try{ const lres=await runLivenessOnFrame(cameraVideo); const hasFace = lres!==null; if(hasFace){ const mockNames=['A. Reyes','M. Santos','J. Cruz','L. Gomez','R. Tan','N. Dela Cruz']; const name=mockNames[Math.floor(Math.random()*mockNames.length)]; const conf=Math.round(75+Math.random()*20); detectedName.textContent=name; faceConfidence.textContent=conf+'%'; livenessScoreElm.textContent = lres.isLive? `Live (${lres.livenessScore}%)` : 'Suspect'; if(lres.isLive){ const geo=await getCurrentGeo(); const employee=EMPLOYEE_ROSTER.find(e=>e.name===name); const shift = employee ? SHIFTS[employee.shift] : SHIFTS.day; const shiftEval = evaluateAttendanceForShift({ timestamp:new Date().toISOString() }, shift); const record={ timestamp:new Date().toISOString(), employee:name, employeeId:employee?.id, method:'face', device:'Kiosk-01', confidence:conf, liveness:lres.livenessScore, geo, shift:shift.name, status: shiftEval.isLate?'late':'on-time' }; if(navigator.onLine){ pushAttendance(record); pushAuditEvent('face.verify.success', `Face matched ${name} (live ${lres.livenessScore}%, ${conf}%)`); } else { cacheOfflineAttendance(record); pushAuditEvent('face.verify.offline', `Face ${name} cached due to offline`); } updateLateCount(); } } else { detectedName.textContent='—'; faceConfidence.textContent='—'; livenessScoreElm.textContent='—'; } }catch{} }, 1000); }
+    function stopCamera(){ if(streamRef){ streamRef.getTracks().forEach(t=>t.stop()); streamRef=null; } cameraVideo.srcObject=null; cameraVideo.classList.add('hidden'); cameraPlaceholder.classList.remove('hidden'); camStatus.textContent='Stopped'; pushAuditEvent('camera.stop','Camera stopped'); clearInterval(window.__faceDetectInterval__); clearInterval(window.__mockDetectInterval__); }
+    startCamBtn.addEventListener('click', startCamera);
+    stopCamBtn.addEventListener('click', stopCamera);
+
+    // ---------- Fallback mock detection ----------
+    async function mockFaceDetectionLoop(){ const mockNames=['A. Reyes','M. Santos','J. Cruz','L. Gomez','R. Tan','N. Dela Cruz']; if(window.__mockDetectInterval__) clearInterval(window.__mockDetectInterval__); window.__mockDetectInterval__ = setInterval(async ()=>{ if(Math.random()>0.5){ const name=mockNames[Math.floor(Math.random()*mockNames.length)]; const conf=Math.round(75+Math.random()*20); const live=Math.random()>0.2 ? 'live' : 'suspect'; detectedName.textContent=name; faceConfidence.textContent=conf+'%'; livenessScoreElm.textContent = live==='live' ? 'Passed' : 'Suspect'; const geo=await getCurrentGeo(); const employee=EMPLOYEE_ROSTER.find(e=>e.name===name); const shift=employee?SHIFTS[employee.shift]:SHIFTS.day; const shiftEval=evaluateAttendanceForShift({ timestamp:new Date().toISOString() }, shift); const record={ timestamp:new Date().toISOString(), employee:name, employeeId:employee?.id, method:'face', device:'Kiosk-01', confidence:conf, liveness:live, geo, shift:shift.name, status: shiftEval.isLate?'late':'on-time' }; if(navigator.onLine){ pushAttendance(record); pushAuditEvent('face.verify.success',`Face matched ${name} (${live}, ${conf}%)`); } else { cacheOfflineAttendance(record); pushAuditEvent('face.verify.offline',`Face ${name} cached due to offline`); } updateLateCount(); } else { detectedName.textContent='—'; faceConfidence.textContent='—'; livenessScoreElm.textContent='—'; pushAuditEvent('face.verify.fail','No face recognized'); } }, 4500); }
+
+    // ---------- Attendance recording ----------
+    function pushAttendance(record){ attendanceLogs.unshift(record); const row=document.createElement('tr'); const loc = record.geo ? `${record.geo.lat.toFixed(4)}, ${record.geo.lng.toFixed(4)}` : 'No GPS'; row.innerHTML = `<td class="p-2">${new Date(record.timestamp).toLocaleTimeString()}</td><td class="p-2">${record.employee}</td><td class="p-2">${record.method}</td><td class="p-2">${record.shift||'—'}</td><td class="p-2 text-xs text-gray-500">${loc}</td>`; attendanceTable.prepend(row); if(attendanceTable.childElementCount>200) attendanceTable.removeChild(attendanceTable.lastChild); pushAuditEvent('attendance.recorded', `${record.employee} via ${record.method} on ${record.device} (${record.status})`); }
+    function cacheOfflineAttendance(record){ const cache=JSON.parse(localStorage.getItem(offlineCacheKey)||'[]'); cache.unshift(record); localStorage.setItem(offlineCacheKey, JSON.stringify(cache.slice(0,500))); pushAuditEvent('offline.cache', `Cached attendance for ${record.employee}`); }
+    window.addEventListener('online', async ()=>{ const cached=JSON.parse(localStorage.getItem(offlineCacheKey)||'[]'); if(cached.length){ for(const r of cached){ pushAttendance(r); pushAuditEvent('offline.sync', `Synced cached record for ${r.employee}`); } localStorage.removeItem(offlineCacheKey); showToast(`Synced ${cached.length} cached attendance records`, 'success'); } });
+
+    // ---------- Fingerprint actions ----------
+    document.getElementById('fpScan').addEventListener('click', async ()=>{
+      const success = Math.random()>0.2;
+      if(success){ const name=['M. Santos','J. Cruz','A. Reyes'][Math.floor(Math.random()*3)]; const employee=EMPLOYEE_ROSTER.find(e=>e.name===name); const fpTemplate=`fp_template_${Math.random().toString(36).slice(2,10)}`; const duplicates=findPotentialDuplicate(fpTemplate, employee?.id); if(duplicates&&duplicates.length){ const dupText=duplicates.map(d=>`${d.employee} (${d.score}%)`).join(', '); showToast(`Fingerprint duplicates: ${dupText}`, 'warn'); pushAuditEvent('finger.duplicate', `Duplicate fingerprint detected for ${name}`); return; } const geo=await getCurrentGeo(); const shift=employee?SHIFTS[employee.shift]:SHIFTS.day; const shiftEval=evaluateAttendanceForShift({ timestamp:new Date().toISOString() }, shift); const rec={ timestamp:new Date().toISOString(), employee:name, employeeId:employee?.id, method:'fingerprint', device:'FP-Bridge-01', confidence:95, geo, shift:shift.name, status: shiftEval.isLate?'late':'on-time' }; if(navigator.onLine) pushAttendance(rec); else cacheOfflineAttendance(rec); pushAuditEvent('finger.verify.success', `Fingerprint matched for ${name}`); showToast(`Fingerprint recognized: ${name}`, 'success'); } else { pushAuditEvent('finger.verify.fail','Fingerprint verification failed'); showToast('Fingerprint not recognized','error'); }
+    });
+    document.getElementById('fpEnroll').addEventListener('click', async ()=>{
+      const id=document.getElementById('enrollId').value.trim(); if(!id){ showToast('Enter Employee ID first','warn'); return; }
+      const fpTemplate=`fp_template_${Math.random().toString(36).slice(2,14)}`; const duplicates=findPotentialDuplicate(fpTemplate, id); if(duplicates&&duplicates.length){ const dupText=duplicates.map(d=>`${d.employee} (${d.score}%)`).join(', '); if(!confirm(`Fingerprint similar to existing: ${dupText}. Continue?`)) return; }
+      const encrypted=await encryptTemplate(fpTemplate); if(encrypted){ ENCRYPTED_TEMPLATES[id] = { ...ENCRYPTED_TEMPLATES[id], finger: encrypted }; pushAuditEvent('finger.enroll', `Fingerprint enrolled for ${id} (encrypted)`); showToast('Fingerprint enrollment completed with encryption','success'); } else { pushAuditEvent('finger.enroll.error','Enrollment failed - encryption error'); showToast('Enrollment failed due to encryption error','error'); }
+    });
+
+    // ---------- Enrollment ----------
+    document.getElementById('registerBtn').addEventListener('click', async ()=>{
+      const id=document.getElementById('enrollId').value.trim(); const name=document.getElementById('enrollName').value.trim(); const shift=document.getElementById('enrollShift').value; if(!id||!name){ showToast('Enter ID and Name','warn'); return; }
+      const faceTemplate=`face_template_${id}_${Date.now()}`; const fpTemplate=`fp_template_${id}_${Date.now()}`; const encryptedFace=await encryptTemplate(faceTemplate); const encryptedFp=await encryptTemplate(fpTemplate);
+      if(encryptedFace&&encryptedFp){ ENCRYPTED_TEMPLATES[id] = { face:encryptedFace, finger:encryptedFp, shift, enrolledAt:new Date().toISOString(), name }; pushAuditEvent('biometric.enroll', `Encrypted enrollment for ${name} (${id}) in ${SHIFTS[shift].name}`); showToast(`Employee ${name} registered in ${SHIFTS[shift].name}`,'success'); document.getElementById('enrollId').value=''; document.getElementById('enrollName').value=''; } else { showToast('Registration failed due to encryption error','error'); }
+    });
+
+    // ---------- Buttons wiring ----------
+    document.getElementById('runAnomalyScan').addEventListener('click', ()=>{ progressStart(); setTimeout(()=>{ runRuleBasedAnomalyScan(); progressDone(); }, 200); });
+    document.getElementById('checkIntegrity').addEventListener('click', ()=>{ progressStart(); setTimeout(()=>{ checkDataIntegrity(); progressDone(); }, 200); });
+    document.getElementById('runShiftCheck').addEventListener('click', ()=>{ const result=detectAbsencesForDate(); updateLateCount(); showToast(`Shift analysis: ${result.absences.length} absences, ${result.lateArrivals.length} late`, 'info'); });
+    document.getElementById('simulateOffline').addEventListener('click', ()=>{ const sample={ timestamp:new Date().toISOString(), employee:'Offline Demo', method:'face', device:'Kiosk-01', confidence:90, liveness:'live', geo:{ lat:14.5995, lng:120.9842, source:'simulated' } }; cacheOfflineAttendance(sample); showToast('Offline event cached with geo data','info'); });
+    document.getElementById('syncNow').addEventListener('click', ()=>{ const cached=JSON.parse(localStorage.getItem(offlineCacheKey)||'[]'); if(!cached.length){ showToast('No cached records','warn'); return; } for(const r of cached) pushAttendance(r); localStorage.removeItem(offlineCacheKey); pushAuditEvent('offline.sync.forced', `Forced sync of ${cached.length} records`); showToast(`Synced ${cached.length} cached records`,'success'); });
+
+    // ---------- Exports ----------
+    document.getElementById('exportCSV').addEventListener('click', ()=>{ if(!attendanceLogs.length){ showToast('No attendance records to export','warn'); return; } let csv='Time,Employee,Method,Shift,Location,Status\n'; const rows=attendanceTable.querySelectorAll('tr'); rows.forEach(r=>{ const cols=[...r.querySelectorAll('td')].map(td=>`"${td.textContent.replace(/"/g,'""')}"`); csv+=cols.join(',')+'\n'; }); const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='attendance_export.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); pushAuditEvent('export.csv','Attendance export CSV performed'); showToast('CSV exported','success'); });
+    document.getElementById('exportJSON').addEventListener('click', ()=>{ const rows=attendanceTable.querySelectorAll('tr'); const arr=[]; rows.forEach(r=>{ const t=r.children; arr.push({ time:t[0].textContent, employee:t[1].textContent, method:t[2].textContent, shift:t[3].textContent, location:t[4].textContent }); }); const blob=new Blob([JSON.stringify(arr,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='attendance_export.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); pushAuditEvent('export.json','Attendance export JSON performed'); showToast('JSON exported','success'); });
+
+    // ---------- Policy engine ----------
+    function togglePill(inputId, pillId, activeText, inactiveText){ const input=document.getElementById(inputId); const pill=document.getElementById(pillId); input.addEventListener('change', ()=>{ if(input.checked){ pill.classList.remove('bg-gray-200','dark:bg-gray-700','text-black'); pill.classList.add('bg-emerald-500','text-white'); pill.textContent=activeText; } else { pill.classList.add('bg-gray-200','dark:bg-gray-700','text-black'); pill.classList.remove('bg-emerald-500','text-white'); pill.textContent=inactiveText; } }); input.dispatchEvent(new Event('change')); }
+    togglePill('policyFinance','pillFinance','Fingerprint','Fingerprint (off)');
+    togglePill('policyField','pillField','Face','Face (off)');
+    togglePill('policyGeneral','pillGeneral','Hybrid','Hybrid (off)');
+    document.getElementById('savePolicies').addEventListener('click', ()=>{ const finance=document.getElementById('policyFinance').checked?'fingerprint':'none'; const field=document.getElementById('policyField').checked?'face':'none'; const general=document.getElementById('policyGeneral').checked?'hybrid':'none'; pushAuditEvent('policy.update', `Policies updated: Finance=${finance}, Field=${field}, General=${general}`); showToast('Policies saved','success'); });
+
+    // ---------- Audit Trail actions ----------
+    document.getElementById('downloadTrail').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(auditTrail,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`biometric_audit_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); pushAuditEvent('audit.export','Audit trail exported'); showToast('Audit trail exported','success'); });
+    document.getElementById('clearTrail').addEventListener('click', ()=>{ if(!confirm('Clear demo audit trail?')) return; auditTrail.length=0; auditTrailElm.innerHTML=''; localStorage.removeItem('ih_audit_demo'); pushAuditEvent('audit.clear','Audit trail cleared'); showToast('Audit trail cleared','info'); });
+
+    // ---------- Manual override ----------
+    document.getElementById('applyOverride').addEventListener('click', ()=>{ const emp=document.getElementById('overrideEmp').value.trim(); const reason=document.getElementById('overrideReason').value.trim(); if(!emp||!reason){ showToast('Enter employee ID and reason','warn'); return; } const employee=EMPLOYEE_ROSTER.find(e=>e.id===emp); if(!employee){ showToast('Employee ID not found in roster','warn'); return; } const shift=SHIFTS[employee.shift]; const shiftEval=evaluateAttendanceForShift({ timestamp:new Date().toISOString() }, shift); const rec={ timestamp:new Date().toISOString(), employee:employee.name, employeeId:emp, method:'manual', device:'HR-Portal', note:reason, status:'override', shift:shift.name, override:{ reason, by:'HR Admin', timestamp:new Date().toISOString() } }; pushAttendance(rec); pushAuditEvent('manual.override', `Manual override by HR for ${employee.name}: ${reason}`); showToast('Override applied and logged','success'); document.getElementById('overrideEmp').value=''; document.getElementById('overrideReason').value=''; });
+    document.getElementById('cancelOverride').addEventListener('click', ()=>{ document.getElementById('overrideEmp').value=''; document.getElementById('overrideReason').value=''; });
+
+    // ---------- Misc controls ----------
+    document.getElementById('saveConfig').addEventListener('click', ()=>{ pushAuditEvent('config.save','Device configuration saved'); showToast('Device configuration saved','success'); });
+    document.getElementById('openDocs').addEventListener('click', ()=>{ showToast('Integration docs: Geo-tagged, Multi-shift, Auth, Liveness, Encryption, Anomaly, and more…','info', 3200); });
+    // Sidebar utility buttons (now functional)
+    const settingsPanel = document.getElementById('settingsPanel');
+    const closeSettings = document.getElementById('closeSettings');
+    function openSettings(){ settingsPanel.classList.remove('hidden'); settingsPanel.classList.add('flex'); }
+    function closeSettingsFn(){ settingsPanel.classList.add('hidden'); settingsPanel.classList.remove('flex'); }
+    document.getElementById('customizeLayout')?.addEventListener('click', openSettings);
+    closeSettings?.addEventListener('click', closeSettingsFn);
+    settingsPanel?.addEventListener('click', (e)=>{ if(e.target===settingsPanel) closeSettingsFn(); });
+    const shortcutsModal = document.getElementById('shortcutsModal');
+    const closeShortcuts = document.getElementById('closeShortcuts');
+    function openShortcuts(){ shortcutsModal.classList.remove('hidden'); shortcutsModal.classList.add('flex'); }
+    function closeShortcutsFn(){ shortcutsModal.classList.add('hidden'); shortcutsModal.classList.remove('flex'); }
+    document.getElementById('shortcutsBtn')?.addEventListener('click', openShortcuts);
+    closeShortcuts?.addEventListener('click', closeShortcutsFn);
+    shortcutsModal?.addEventListener('click', (e)=>{ if(e.target===shortcutsModal) closeShortcutsFn(); });
+
+    // Settings logic (subset from dashboard)
+    const accentBtns = Array.from(document.querySelectorAll('#settingsPanel [data-accent]'));
+    const bgBtns = Array.from(document.querySelectorAll('#settingsPanel [data-bg]'));
+    const densityBtns = Array.from(document.querySelectorAll('#settingsPanel [data-density]'));
+    const glassIntensity = document.getElementById('glassIntensity');
+    const motionToggle = document.getElementById('motionToggle');
+    const contrastToggle = document.getElementById('contrastToggle');
+    const sidebarBtns = Array.from(document.querySelectorAll('#settingsPanel [data-sidebar]'));
+    const fontBtns = Array.from(document.querySelectorAll('#settingsPanel [data-font]'));
+    const saveSettings = document.getElementById('saveSettings');
+    const resetSettings = document.getElementById('resetSettings');
+    const exportPrefs = document.getElementById('exportPrefs');
+    const importPrefsBtn = document.getElementById('importPrefsBtn');
+    const prefsFile = document.getElementById('prefsFile');
+
+    function getPrefs(){ try{ return JSON.parse(localStorage.getItem('ih_prefs')) || {}; }catch{ return {}; } }
+    function setPrefs(p){ localStorage.setItem('ih_prefs', JSON.stringify(p)); }
+    function applyPrefs(p){
+      if(p.accent) document.documentElement.setAttribute('data-accent', p.accent);
+      if(p.bg) document.documentElement.setAttribute('data-bg', p.bg);
+      document.documentElement.setAttribute('data-density', p.density||'comfortable');
+      document.documentElement.classList.toggle('reduce-motion', !!p.reduceMotion);
+      if(motionToggle) motionToggle.checked = !!p.reduceMotion;
+    }
+    function applyGlass(val){
+      const alpha = parseFloat(val||'0.6');
+      document.documentElement.style.setProperty('--card-bg', `rgba(255,255,255,${alpha})`);
+      document.documentElement.style.setProperty('--card-border', `rgba(255,255,255,${Math.max(0, Math.min(1, alpha*0.6))})`);
+    }
+    function applySidebar(size){
+      const map = { narrow:'14rem', default:'18rem', wide:'22rem' };
+      const px = map[size] || map.default;
+      document.documentElement.style.setProperty('--sidebar', px);
+    }
+    function applyFont(f){
+      const size = f==='small'? '0.95rem' : f==='large'? '1.05rem' : '1rem';
+      document.documentElement.setAttribute('data-font', f||'base');
+      document.body.style.fontSize = size;
+    }
+    function applyPrefsExtended(p){
+      if(p.glass) applyGlass(p.glass);
+      if(p.sidebar) applySidebar(p.sidebar);
+      if(p.contrast!==undefined) document.documentElement.classList.toggle('high-contrast', !!p.contrast);
+      if(p.font) applyFont(p.font);
+      if(glassIntensity) glassIntensity.value = p.glass || '0.6';
+      if(contrastToggle) contrastToggle.checked = !!p.contrast;
+    }
+    // initialize
+    const initPrefs = getPrefs(); applyPrefs(initPrefs); applyPrefsExtended(initPrefs);
+    // simple button wiring
+    accentBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-accent', b.dataset.accent)));
+    bgBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-bg', b.dataset.bg)));
+    densityBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-density', b.dataset.density)));
+    sidebarBtns.forEach(b=> b.addEventListener('click', ()=> applySidebar(b.dataset.sidebar)));
+    fontBtns.forEach(b=> b.addEventListener('click', ()=> applyFont(b.dataset.font)));
+    glassIntensity?.addEventListener('input', ()=> applyGlass(glassIntensity.value));
+    contrastToggle?.addEventListener('change', ()=> document.documentElement.classList.toggle('high-contrast', contrastToggle.checked));
+    // save/reset
+    saveSettings?.addEventListener('click', ()=>{
+      const prev = getPrefs();
+      const p = {
+        accent: document.documentElement.getAttribute('data-accent'),
+        bg: document.documentElement.getAttribute('data-bg'),
+        density: document.documentElement.getAttribute('data-density'),
+        reduceMotion: motionToggle?.checked,
+        glass: glassIntensity ? glassIntensity.value : (prev.glass||'0.6'),
+        sidebar: prev.sidebar || 'default',
+        contrast: contrastToggle ? contrastToggle.checked : !!prev.contrast,
+        font: document.documentElement.getAttribute('data-font') || prev.font || 'base'
+      };
+      setPrefs(p); applyPrefs(p); applyPrefsExtended(p); closeSettingsFn(); showToast('Preferences saved','success');
+    });
+    resetSettings?.addEventListener('click', ()=>{ const p = {accent:'teal', bg:'gradient', density:'comfortable', reduceMotion:false, glass:'0.6', sidebar:'default', contrast:false, font:'base'}; setPrefs(p); applyPrefs(p); applyPrefsExtended(p); showToast('Preferences reset','info'); });
+    // export/import
+    exportPrefs?.addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(getPrefs(),null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ih_prefs.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); });
+    importPrefsBtn?.addEventListener('click', ()=> prefsFile && prefsFile.click());
+    prefsFile?.addEventListener('change', async ()=>{ const file=prefsFile.files&&prefsFile.files[0]; if(!file) return; try{ const txt=await file.text(); const json=JSON.parse(txt); setPrefs(json); applyPrefs(json); applyPrefsExtended(json); showToast('Preferences imported','success'); }catch{ showToast('Invalid preferences file','error'); } });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e)=>{
+      if(e.target && ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+      if(e.key.toLowerCase()==='s'){ e.preventDefault(); openSettings(); }
+      if(e.key.toLowerCase()==='t'){ e.preventDefault(); themeToggle?.click(); }
+      if(e.key==='?'){ e.preventDefault(); openShortcuts(); }
+      if(e.key.toLowerCase()==='g'){ e.preventDefault(); document.querySelector('#sec-kiosk')?.scrollIntoView({behavior:'smooth'}); }
+      if(e.key.toLowerCase()==='l'){ e.preventDefault(); document.querySelector('#sec-logs')?.scrollIntoView({behavior:'smooth'}); }
+    });
+
+    // ---------- Init seed ----------
+    (function seedDemo(){
+      pushAuditEvent('system.boot','Enhanced Module 2 loaded with all 20 features');
+      const seed=[
+        { timestamp:new Date(Date.now()-3600*1000).toISOString(), employee:'M. Santos', employeeId:'EMP001', method:'face', device:'Kiosk-01', shift:'Day Shift', geo:{ lat:14.5995, lng:120.9842, source:'demo' }, confidence:92, liveness:85 },
+        { timestamp:new Date(Date.now()-3400*1000).toISOString(), employee:'J. Cruz', employeeId:'EMP002', method:'fingerprint', device:'FP-Bridge-01', shift:'Night Shift', geo:{ lat:14.6000, lng:120.9850, source:'demo' }, confidence:95 },
+        { timestamp:new Date(Date.now()-3200*1000).toISOString(), employee:'L. Gomez', employeeId:'EMP003', method:'manual', device:'HR-Portal', shift:'Rotational Shift', note:'Forgot to clock in', override:{ reason:'Forgot to clock in', by:'HR Admin', timestamp:new Date(Date.now()-3200*1000).toISOString() } }
+      ];
+      seed.forEach(s=>pushAttendance(s));
+      renderDeviceHealth();
+      updateLateCount();
+      detectAbsencesForDate();
+      loadEncryptionKey();
+      setTimeout(()=>{ showToast('Biometrics & Attendance module ready','success'); }, 700);
+    })();
+  </script>
+  <script>
+    // Sidebar active link highlighter (matches current filename)
+    (function(){
+      try{
+        const current = location.pathname.split('/').pop();
+        const links = document.querySelectorAll('aside nav a[href]');
+        links.forEach(a=>{
+          const href = a.getAttribute('href') || '';
+          const name = href.split('/').pop();
+          if(!name) return;
+          if(name === current){
+            a.classList.add('ring','ring-white/30','bg-accent/10');
+            a.setAttribute('aria-current','page');
+          }
+        });
+      }catch(e){ }
+    })();
+  </script>
+</body>
+</html>

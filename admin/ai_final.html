@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-accent="teal" data-bg="gradient">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IntelliHRTrack — AI Workforce Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind config (darkMode, fonts, animations)
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { inter: ['Inter','ui-sans-serif','system-ui','Segoe UI','Roboto','Helvetica Neue','Arial','Noto Sans','sans-serif'] },
+          colors: { brand: { 50:'#f5fbff', 100:'#e6f6ff', 400:'#10b981', 500:'#0ea5a0', 700:'#047857' } },
+          boxShadow: { glow: '0 10px 30px -5px rgba(16,185,129,0.35), 0 8px 16px -8px rgba(59,130,246,0.25)' },
+          keyframes: { float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-8px)' } }, shine: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } } },
+          animation: { float: 'float 8s ease-in-out infinite', shine: 'shine 2.5s linear infinite' }
+        }
+      }
+    };
+  </script>
+  <!-- Early apply of theme (dark/light), accent and background to avoid FOUC and persist across pages -->
+  <script>
+    (function(){
+      try{
+        const d = document.documentElement;
+        const theme = localStorage.getItem('ih_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        if(theme === 'dark') d.classList.add('dark'); else d.classList.remove('dark');
+        let accent = localStorage.getItem('ih_accent');
+        let bg = localStorage.getItem('ih_bg');
+        if(!accent || !bg){
+          try{ const prefs = JSON.parse(localStorage.getItem('ih_prefs')||'{}'); accent = accent || prefs.accent; bg = bg || prefs.bg; }catch{}
+        }
+        d.setAttribute('data-accent', accent || d.getAttribute('data-accent') || 'teal');
+        d.setAttribute('data-bg', bg || d.getAttribute('data-bg') || 'gradient');
+      }catch(e){}
+    })();
+  </script>
+    <script>
+      // Delegated click handlers to ensure buttons still work if DOM nodes are replaced
+      document.addEventListener('click', function (e) {
+        const btn = e.target;
+        // Open settings
+        if (btn.closest && btn.closest('#customizeLayout')) {
+          const settings = document.getElementById('settingsPanel');
+          if (settings) { settings.classList.remove('hidden'); settings.classList.add('flex'); }
+        }
+        // Close settings
+        if (btn.closest && btn.closest('#closeSettings')) {
+          const settings = document.getElementById('settingsPanel');
+          if (settings) { settings.classList.add('hidden'); settings.classList.remove('flex'); }
+        }
+        // Open shortcuts
+        if (btn.closest && btn.closest('#shortcutsBtn')) {
+          const s = document.getElementById('shortcutsModal');
+          if (s) { s.classList.remove('hidden'); s.classList.add('flex'); }
+        }
+        // Close shortcuts
+        if (btn.closest && btn.closest('#closeShortcuts')) {
+          const s = document.getElementById('shortcutsModal');
+          if (s) { s.classList.add('hidden'); s.classList.remove('flex'); }
+        }
+      });
+    </script>
+  <script>
+    // ---------- SETTINGS & SHORTCUTS WIRING (from dashboard_final) ----------
+    (function(){
+      // Settings modal elements
+      const customizeBtn = document.getElementById('customizeLayout');
+      const settingsPanel = document.getElementById('settingsPanel');
+      const closeSettings = document.getElementById('closeSettings');
+      const saveSettings = document.getElementById('saveSettings');
+      const resetSettings = document.getElementById('resetSettings');
+      const motionToggle = document.getElementById('motionToggle');
+
+      function openSettings(){ if(settingsPanel) { settingsPanel.classList.remove('hidden'); settingsPanel.classList.add('flex'); } }
+      function closeSettingsFn(){ if(settingsPanel) { settingsPanel.classList.add('hidden'); settingsPanel.classList.remove('flex'); } }
+      if(customizeBtn) customizeBtn.addEventListener('click', openSettings);
+      if(closeSettings) closeSettings.addEventListener('click', closeSettingsFn);
+      if(settingsPanel) settingsPanel.addEventListener('click', (e)=>{ if(e.target === settingsPanel) closeSettingsFn(); });
+
+      const accentBtns = Array.from(document.querySelectorAll('#settingsPanel [data-accent]'));
+      const bgBtns = Array.from(document.querySelectorAll('#settingsPanel [data-bg]'));
+      const densityBtns = Array.from(document.querySelectorAll('#settingsPanel [data-density]'));
+
+      function getPrefs(){ try{ return JSON.parse(localStorage.getItem('ih_prefs')) || {}; }catch{ return {}; } }
+      function setPrefs(p){ try { localStorage.setItem('ih_prefs', JSON.stringify(p)); }catch(e){} }
+      function applyPrefs(p){ if(!p) return; if(p.accent) document.documentElement.setAttribute('data-accent', p.accent); if(p.bg) document.documentElement.setAttribute('data-bg', p.bg); document.documentElement.setAttribute('data-density', p.density||'comfortable'); document.documentElement.classList.toggle('reduce-motion', !!p.reduceMotion); if(motionToggle) motionToggle.checked = !!p.reduceMotion; }
+      const initPrefs = getPrefs(); applyPrefs(initPrefs);
+      accentBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-accent', b.dataset.accent)));
+      bgBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-bg', b.dataset.bg)));
+      densityBtns.forEach(b=> b.addEventListener('click', ()=> document.documentElement.setAttribute('data-density', b.dataset.density)));
+
+      // Glass + sidebar + font helpers
+      const glassIntensity = document.getElementById('glassIntensity');
+      const contrastToggle = document.getElementById('contrastToggle');
+      const sidebarBtns = Array.from(document.querySelectorAll('#settingsPanel [data-sidebar]'));
+      const fontBtns = Array.from(document.querySelectorAll('#settingsPanel [data-font]'));
+
+      function applyGlass(val){ const alpha = parseFloat(val||'0.6'); document.documentElement.style.setProperty('--card-bg', `rgba(255,255,255,${alpha})`); document.documentElement.style.setProperty('--card-border', `rgba(255,255,255,${Math.max(0, Math.min(1, alpha*0.6))})`); }
+      function applySidebar(size){ const map = { narrow:'14rem', default:'18rem', wide:'22rem' }; const px = map[size] || map.default; document.documentElement.style.setProperty('--sidebar', px); }
+      function applyFont(f){ const size = f==='small'? '0.95rem' : f==='large'? '1.05rem' : '1rem'; document.documentElement.setAttribute('data-font', f||'base'); document.body.style.fontSize = size; }
+
+      function applyPrefsExtended(p){ if(!p) return; if(p.glass) applyGlass(p.glass); if(p.sidebar) applySidebar(p.sidebar); if(p.contrast) document.documentElement.classList.toggle('high-contrast', !!p.contrast); if(p.font) applyFont(p.font); if(glassIntensity) glassIntensity.value = p.glass || '0.6'; if(contrastToggle) contrastToggle.checked = !!p.contrast; }
+      applyPrefsExtended(getPrefs());
+
+      // Wire other controls
+      sidebarBtns.forEach(b=> b.addEventListener('click', ()=> applySidebar(b.dataset.sidebar)));
+      fontBtns.forEach(b=> b.addEventListener('click', ()=> applyFont(b.dataset.font)));
+      glassIntensity?.addEventListener('input', ()=> applyGlass(glassIntensity.value));
+      contrastToggle?.addEventListener('change', ()=> document.documentElement.classList.toggle('high-contrast', contrastToggle.checked));
+
+      if(saveSettings) saveSettings.addEventListener('click', ()=>{
+        const prev = getPrefs();
+        const p = {
+          accent: document.documentElement.getAttribute('data-accent'),
+          bg: document.documentElement.getAttribute('data-bg'),
+          density: document.documentElement.getAttribute('data-density'),
+          reduceMotion: motionToggle ? motionToggle.checked : false,
+          glass: glassIntensity ? glassIntensity.value : (prev.glass||'0.6'),
+          sidebar: (prev.sidebar)||'default',
+          contrast: contrastToggle ? contrastToggle.checked : !!prev.contrast,
+          font: document.documentElement.getAttribute('data-font') || prev.font || 'base'
+        };
+        const activeSidebar = document.activeElement && document.activeElement.getAttribute('data-sidebar'); if(activeSidebar) p.sidebar = activeSidebar;
+        setPrefs(p); applyPrefs(p); applyPrefsExtended(p); closeSettingsFn();
+      });
+      if(resetSettings) resetSettings.addEventListener('click', ()=>{ const p = {accent:'teal', bg:'gradient', density:'comfortable', reduceMotion:false}; setPrefs(p); applyPrefs(p); });
+
+      // Export / Import prefs
+      const exportPrefs = document.getElementById('exportPrefs');
+      const importPrefsBtn = document.getElementById('importPrefsBtn');
+      const prefsFile = document.getElementById('prefsFile');
+      if(exportPrefs){ exportPrefs.addEventListener('click', ()=>{ const blob = new Blob([JSON.stringify(getPrefs(),null,2)],{type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ih_prefs.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }); }
+      if(importPrefsBtn){ importPrefsBtn.addEventListener('click', ()=> prefsFile && prefsFile.click()); }
+      if(prefsFile){ prefsFile.addEventListener('change', async ()=>{ const file = prefsFile.files && prefsFile.files[0]; if(!file) return; try{ const txt = await file.text(); const json = JSON.parse(txt); setPrefs(json); applyPrefs(json); applyPrefsExtended(json); closeSettingsFn(); }catch{ /* ignore */ } }); }
+
+      // ---------- SHORTCUTS ----------
+      const shortcutsModal = document.getElementById('shortcutsModal');
+      const shortcutsBtn = document.getElementById('shortcutsBtn');
+      const closeShortcuts = document.getElementById('closeShortcuts');
+      function openShortcuts(){ if(shortcutsModal){ shortcutsModal.classList.remove('hidden'); shortcutsModal.classList.add('flex'); } }
+      function closeShortcutsFn(){ if(shortcutsModal){ shortcutsModal.classList.add('hidden'); shortcutsModal.classList.remove('flex'); } }
+      shortcutsBtn?.addEventListener('click', openShortcuts);
+      closeShortcuts?.addEventListener('click', closeShortcutsFn);
+      shortcutsModal?.addEventListener('click', (e)=>{ if(e.target===shortcutsModal) closeShortcutsFn(); });
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.8/iconify-icon.min.js"></script>
+  <style>
+    :root { --accent:#14b8a6; --accent-to:#0ea5a0; --card-bg:rgba(255,255,255,0.6); --card-border:rgba(255,255,255,0.35);
+      --noise:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 100 100"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity="0.035"/></svg>'); }
+    html[data-accent="teal"] { --accent:#14b8a6; --accent-to:#0ea5a0; }
+    html[data-accent="purple"] { --accent:#8b5cf6; --accent-to:#7c3aed; }
+    html[data-accent="rose"] { --accent:#f43f5e; --accent-to:#e11d48; }
+    html[data-accent="amber"] { --accent:#f59e0b; --accent-to:#d97706; }
+    html[data-bg="gradient"] body::before { content:""; position:fixed; inset:0; z-index:-2; background:
+      radial-gradient(800px 400px at 10% -10%, rgba(59,130,246,0.15), transparent 60%),
+      radial-gradient(600px 300px at 120% 0%, rgba(20,184,166,0.18), transparent 60%),
+      linear-gradient(120deg, rgba(2,6,23,0.03), rgba(2,6,23,0.06)); }
+    html[data-bg="image"] body::before { content:""; position:fixed; inset:0; z-index:-2; background:url('https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&w=2100&q=60') center/cover no-repeat fixed; filter:saturate(1.15) brightness(0.95); }
+    body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:-1; background-image:var(--noise); }
+    .glass { background: var(--card-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--card-border); }
+    .dark .glass { background: rgba(15,23,42,0.6); border-color: rgba(255,255,255,0.08); }
+    .gradient-accent { background-image: linear-gradient(135deg, var(--accent), var(--accent-to)); }
+    .text-accent { color: var(--accent); }
+    .bg-accent { background-color: var(--accent); }
+    .neon-divider { height:1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity:.6; }
+    .fancy-scroll::-webkit-scrollbar { height:10px; width:10px; }
+    .fancy-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent), var(--accent-to)); border-radius:9999px; }
+    .fancy-scroll::-webkit-scrollbar-track { background: transparent; }
+    .big-scroll { scrollbar-width:auto; scrollbar-color: var(--accent) transparent; }
+    .big-scroll::-webkit-scrollbar { width:16px; height:16px; }
+    .big-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent), var(--accent-to)); border-radius:12px; border:3px solid transparent; background-clip: content-box; }
+    /* Heatmap polish */
+    .heat-cell { transition: transform .18s ease, box-shadow .18s ease; }
+    .heat-cell:hover { transform: scale(1.08); z-index: 10; box-shadow: 0 8px 20px rgba(2,6,23,0.12); }
+    .tooltip { position:absolute; pointer-events:none; background:rgba(0,0,0,0.85); color:#fff; padding:6px 8px; font-size:12px; border-radius:6px; transform: translate(-50%,-120%); white-space:nowrap; z-index:50; }
+    /* Reduced motion & density */
+    html.reduce-motion * { animation: none !important; transition-duration: 0.01ms !important; }
+    html[data-density="compact"] body { font-size: 0.95rem; }
+    /* Focus overlay */
+    #focusOverlay { backdrop-filter: blur(4px); }
+    /* Reveal on scroll */
+    .reveal { opacity: 0; transform: translateY(8px) scale(0.98); transition: opacity .5s ease, transform .5s ease; }
+    .in-view { opacity: 1; transform: none; }
+    /* Micro-interactions */
+    .hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .hover-lift:hover { transform: translateY(-2px); }
+    .pulse-subtle { animation: pulse-subtle 3s ease-in-out infinite; }
+    @keyframes pulse-subtle { 0%,100%{opacity:1} 50%{opacity:.8} }
+    /* Ripple buttons */
+    .ripple { position: relative; overflow: hidden; }
+    .ripple::after { content:''; position:absolute; inset:0; background: radial-gradient(circle, rgba(255,255,255,0.3) 1%, transparent 1%) center/15000%; opacity:0; transition: opacity .5s; }
+    .ripple:active::after { opacity:1; background-size:100%; transition:0s; }
+    /* Animate in + stagger */
+    .animate-in { animation: slideIn .3s ease-out; }
+    @keyframes slideIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+    .stagger-children > * { animation: slideIn .3s ease-out both; }
+    .stagger-children > *:nth-child(1){ animation-delay:.05s }
+    .stagger-children > *:nth-child(2){ animation-delay:.1s }
+    .stagger-children > *:nth-child(3){ animation-delay:.15s }
+    .stagger-children > *:nth-child(4){ animation-delay:.2s }
+    .stagger-children > *:nth-child(5){ animation-delay:.25s }
+    /* Skeleton loading */
+    .skeleton { position:relative; overflow:hidden; background: linear-gradient(90deg, rgba(148,163,184,0.15), rgba(148,163,184,0.25), rgba(148,163,184,0.15)); background-size:200% 100%; animation: shimmer 1.2s infinite; border-radius: 12px; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    /* High contrast + focus */
+    .high-contrast { --card-bg: rgba(255,255,255,0.95); --card-border: rgba(0,0,0,0.3); }
+    *:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Collapsible: keep header (first-child) visible, plus any element marked with [data-collapsible-keep] */
+  .collapsible.collapsed > *:not(:first-child):not([data-collapsible-keep]) { display: none !important; }
+  /* Mobile FAB for sidebar */
+  #mobileMenuFab { box-shadow: 0 12px 28px rgba(2,6,23,.25); }
+    /* Sidebar resize via CSS var */
+    :root { --sidebar: 18rem; }
+    @media (min-width: 1024px){
+      aside[data-resizable]{ width: var(--sidebar) !important; }
+      main[data-shift]{ margin-left: var(--sidebar) !important; }
+    }
+    /* Toasts */
+    #toastHost { position: fixed; top: 16px; right: 16px; display: grid; gap: 10px; z-index: 80; pointer-events: none; }
+    .toast { pointer-events: auto; min-width: 220px; max-width: 360px; padding: 10px 12px; border-radius: 12px; box-shadow: 0 10px 20px rgba(2,6,23,.2); border: 1px solid rgba(255,255,255,.35); }
+    .toast.info { background: var(--card-bg); }
+    .toast.success { background: linear-gradient(135deg, rgba(16,185,129,.15), rgba(20,184,166,.25)); }
+    .toast.warn { background: linear-gradient(135deg, rgba(245,158,11,.15), rgba(245,158,11,.28)); }
+    .toast.error { background: linear-gradient(135deg, rgba(244,63,94,.15), rgba(244,63,94,.28)); }
+    /* Command Palette */
+    #cmdPalette { backdrop-filter: blur(4px); }
+    /* Top progress bar */
+    #topProgress { background-image: linear-gradient(90deg, var(--accent), var(--accent-to)); }
+    /* Back to top */
+    #backToTop { box-shadow: 0 10px 20px rgba(2,6,23,.25); }
+    /* Mobile polish */
+    @media (max-width: 1023px){
+      /* Prefer the floating FAB on mobile instead of header toggle */
+      #mobileMenu{ display: none !important; }
+    }
+    @media (max-width: 640px){
+      /* Keep alerts list tidy on very small screens */
+      #alertsList{ max-height: 12rem; }
+    }
+    /* Print styles */
+    @media print {
+      aside, #settingsPanel, #focusOverlay, #toastHost, #cmdPalette, #backToTop { display: none !important; }
+      body { background: white !important; }
+      .glass { background: white !important; border-color: #e5e7eb !important; }
+      .gradient-accent, .animate-shine { background: none !important; }
+    }
+  </style>
+</head>
+<body class="h-full font-inter bg-gray-50/60 dark:bg-slate-950 text-gray-800 dark:text-gray-100 transition-colors duration-300">
+  <!-- Decorative blobs -->
+  <div class="pointer-events-none fixed -z-10 inset-0 overflow-hidden">
+    <div class="absolute -top-24 -left-24 w-80 h-80 rounded-full blur-3xl opacity-40 gradient-accent animate-float"></div>
+    <div class="absolute bottom-0 right-0 w-96 h-96 rounded-full blur-3xl opacity-30 bg-gradient-to-br from-blue-500 to-indigo-500 animate-float" style="animation-delay:1s"></div>
+  </div>
+
+  <!-- Sidebar (dashboard style) -->
+  <aside data-resizable class="hidden lg:flex fixed left-0 top-0 h-screen w-72 flex-col gap-6 p-6 pr-3 overflow-y-auto fancy-scroll big-scroll">
+    <div class="glass rounded-2xl p-4 shadow-glow text-slate-800 dark:text-slate-100">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl gradient-accent text-white flex items-center justify-center font-extrabold shadow-lg">IH</div>
+        <div>
+          <h1 class="text-lg font-semibold tracking-tight">IntelliHRTrack</h1>
+          <p class="text-xs text-gray-500 dark:text-gray-400">Admin Command Center</p>
+        </div>
+      </div>
+      <div class="neon-divider mt-4"></div>
+      <nav class="mt-3">
+        <ul class="space-y-1">
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="dashboard_final.html"><iconify-icon icon="ph:squares-four-duotone" class="text-accent"></iconify-icon> <span class="font-medium">Dashboard</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="BiometricsAndAttendance_final.html"><iconify-icon icon="ph:fingerprint-simple-duotone" class="text-accent"></iconify-icon> <span class="font-medium">BIOMETRICS &amp; ATTENDANCE</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="employee_final.html"><iconify-icon icon="ph:users-three-duotone" class="text-accent"></iconify-icon> <span>EMPLOYEE MANAGEMENT</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="schedule_final.html"><iconify-icon icon="ph:calendar-check-duotone" class="text-accent"></iconify-icon> <span>SCHEDULING &amp; SHIFTS</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="leave_final.html"><iconify-icon icon="ph:airplane-tilt-duotone" class="text-accent"></iconify-icon> <span>LEAVE &amp; ABSENCES</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="pay.html"><iconify-icon icon="ph:currency-dollar-duotone" class="text-accent"></iconify-icon> <span>PAYROLL &amp; FINANCE</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition ring ring-white/30" href="ai_final.html"><iconify-icon icon="ph:brain-duotone" class="text-accent"></iconify-icon> <span>AI &amp; WORKFORCE ANALYTICS</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="report_final.html"><iconify-icon icon="ph:graph-duotone" class="text-accent"></iconify-icon> <span>REPORTS &amp; EXPORTS</span></a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-xl glass hover:shadow-glow transition" href="system_final.html"><iconify-icon icon="ph:gear-six-duotone" class="text-accent"></iconify-icon> <span>SYSTEM ADMINISTRATION</span></a></li>
+        </ul>
+      </nav>
+      <div class="neon-divider my-4"></div>
+      <div class="space-y-3">
+        <button id="customizeLayout" class="w-full px-3 py-2 text-white rounded-xl gradient-accent hover:shadow-glow ring-1 ring-white/30 transition flex items-center justify-center gap-2"><iconify-icon icon="ph:sliders-duotone"></iconify-icon> <span>Customize Layout</span></button>
+        <button id="shortcutsBtn" class="w-full px-3 py-2 rounded-xl glass hover:shadow-glow transition flex items-center justify-center gap-2"><iconify-icon icon="ph:keyboard-duotone"></iconify-icon> <span>Keyboard Shortcuts</span></button>
+        <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+            <span class="flex items-center gap-2"><iconify-icon icon="ph:sun-dim-duotone" class="hidden dark:inline"></iconify-icon><iconify-icon icon="ph:moon-stars-duotone" class="dark:hidden"></iconify-icon> Light / Dark</span>
+            <button id="sidebarThemeToggle" class="p-2 rounded-xl glass hover:shadow-glow transition flex items-center gap-2"><iconify-icon icon="ph:yin-yang-duotone" class="text-accent"></iconify-icon><span class="text-xs">Toggle</span></button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="app" class="min-h-screen flex">
+    <!-- Main Content (shifted for sidebar on lg) -->
+    <main class="flex-1 p-4 md:p-6 lg:p-8 space-y-6 lg:ml-72">
+      <!-- Hero Section -->
+      <header class="relative overflow-hidden rounded-3xl glass p-6 md:p-8 shadow-lg">
+        <div class="absolute inset-0 opacity-40 animate-shine"></div>
+        <div class="relative z-10 flex items-center justify-between gap-4">
+          <div>
+            <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight">AI Workforce Analytics</h1>
+            <p class="mt-1 text-sm md:text-base text-gray-600 dark:text-gray-300">Advanced AI-powered insights into your workforce patterns and productivity</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="hidden md:flex items-center gap-2 px-3 py-1 rounded-xl glass text-xs">
+              <span id="netDot" class="inline-block w-2.5 h-2.5 rounded-full bg-green-500" title="Online"></span>
+              <span id="headerClock">--:--:--</span>
+            </div>
+            <button id="themeToggle" class="p-2 rounded-xl glass hover:shadow-lg transition">
+              <iconify-icon icon="ph:sun-dim-duotone" class="hidden dark:inline text-accent"></iconify-icon>
+              <iconify-icon icon="ph:moon-stars-duotone" class="dark:hidden text-accent"></iconify-icon>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Key Metrics Overview -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="glass rounded-2xl p-4 shadow transition hover:shadow-lg hover-lift">
+          <div class="text-xs text-gray-500 dark:text-gray-400">Workforce Stability Index</div>
+          <div class="mt-1 text-3xl font-extrabold">87.4%</div>
+          <div class="text-sm text-green-500 flex items-center gap-1">
+            <iconify-icon icon="ph:trend-up-duotone"></iconify-icon>
+            <span>+2.3% from last month</span>
+          </div>
+        </div>
+        
+        <div class="glass rounded-2xl p-4 shadow transition hover:shadow-lg hover-lift">
+          <div class="text-xs text-gray-500 dark:text-gray-400">Absenteeism Risk</div>
+          <div class="mt-1 text-3xl font-extrabold text-amber-600">12.7%</div>
+          <div class="text-sm text-amber-500 flex items-center gap-1">
+            <iconify-icon icon="ph:warning-duotone"></iconify-icon>
+            <span>3 departments at risk</span>
+          </div>
+        </div>
+        
+        <div class="glass rounded-2xl p-4 shadow transition hover:shadow-lg hover-lift">
+          <div class="text-xs text-gray-500 dark:text-gray-400">Predictive Turnover</div>
+          <div class="mt-1 text-3xl font-extrabold">8.2%</div>
+          <div class="text-sm text-red-500 flex items-center gap-1">
+            <iconify-icon icon="ph:trend-down-duotone"></iconify-icon>
+            <span>+1.5% from last quarter</span>
+          </div>
+        </div>
+        
+        <div class="glass rounded-2xl p-4 shadow transition hover:shadow-lg hover-lift">
+          <div class="text-xs text-gray-500 dark:text-gray-400">AI Confidence</div>
+          <div class="mt-1 text-3xl font-extrabold text-purple-600">96.4%</div>
+          <div class="text-sm text-purple-500 flex items-center gap-1">
+            <iconify-icon icon="ph:brain-duotone"></iconify-icon>
+            <span>High accuracy</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Dashboard Content (features preserved) -->
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <!-- Left Column -->
+        <div class="space-y-6">
+          <!-- Feature 1: Workforce Analytics Dashboard -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-xl font-bold">Workforce Analytics Dashboard</h2>
+              <div class="flex items-center gap-2">
+                <button class="p-2 rounded-lg glass text-sm">Daily</button>
+                <button class="p-2 rounded-lg glass text-sm bg-accent text-white">Weekly</button>
+                <button class="p-2 rounded-lg glass text-sm">Monthly</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
+                <p class="text-sm text-gray-600 dark:text-gray-400">Avg. Attendance</p>
+                <p class="text-2xl font-bold">94.2%</p>
+              </div>
+              <div class="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl">
+                <p class="text-sm text-gray-600 dark:text-gray-400">Productivity</p>
+                <p class="text-2xl font-bold">88.7%</p>
+              </div>
+              <div class="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
+                <p class="text-sm text-gray-600 dark:text-gray-400">Overtime Hours</p>
+                <p class="text-2xl font-bold">247</p>
+              </div>
+              <div class="p-4 bg-amber-50 dark:bg-amber-900/30 rounded-xl">
+                <p class="text-sm text-gray-600 dark:text-gray-400">Late Arrivals</p>
+                <p class="text-2xl font-bold">23</p>
+              </div>
+            </div>
+            <div class="h-64">
+              <canvas id="attendanceChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 2: Attendance Trend Analyzer -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Attendance Trend Analyzer</h2>
+            <div class="h-64">
+              <canvas id="attendanceTrendChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 3: Absenteeism Risk Forecast -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Absenteeism Risk Forecast</h2>
+            <div class="space-y-4">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                    <iconify-icon icon="ph:users-three-duotone" class="text-red-500"></iconify-icon>
+                  </div>
+                  <div>
+                    <p class="font-medium">Sales Department</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">High risk: 24%</p>
+                  </div>
+                </div>
+                <div class="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div class="bg-red-500 h-2 rounded-full" style="width: 75%"></div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                    <iconify-icon icon="ph:users-three-duotone" class="text-amber-500"></iconify-icon>
+                  </div>
+                  <div>
+                    <p class="font-medium">Marketing Department</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Medium risk: 16%</p>
+                  </div>
+                </div>
+                <div class="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div class="bg-amber-500 h-2 rounded-full" style="width: 50%"></div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                    <iconify-icon icon="ph:users-three-duotone" class="text-green-500"></iconify-icon>
+                  </div>
+                  <div>
+                    <p class="font-medium">Engineering Department</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Low risk: 8%</p>
+                  </div>
+                </div>
+                <div class="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div class="bg-green-500 h-2 rounded-full" style="width: 25%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 4: Workforce Stability Index -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Workforce Stability Index</h2>
+            <div class="flex items-center justify-center">
+              <div class="relative w-48 h-48">
+                <canvas id="stabilityGauge"></canvas>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <span class="text-3xl font-bold">87.4%</span>
+                  <span class="text-sm text-gray-500 dark:text-gray-400">Stability</span>
+                </div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 mt-4 text-center">
+              <div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Attendance</p>
+                <p class="font-bold">92.1%</p>
+              </div>
+              <div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Schedule Adherence</p>
+                <p class="font-bold">88.7%</p>
+              </div>
+              <div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Leave Consistency</p>
+                <p class="font-bold">81.4%</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 5: Predictive Turnover Visualization -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Predictive Turnover Visualization</h2>
+            <div class="h-64">
+              <canvas id="turnoverChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 6: Overtime Utilization Insights -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Overtime Utilization Insights</h2>
+            <div class="h-64">
+              <canvas id="overtimeChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 7: Departmental Productivity Comparison -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Departmental Productivity Comparison</h2>
+            <div class="h-64">
+              <canvas id="productivityChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 8: Payroll Cost Forecasting -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Payroll Cost Forecasting</h2>
+            <div class="h-64">
+              <canvas id="payrollChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 9: Salary-to-Attendance Correlation (moved here for balance) -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Salary-to-Attendance Correlation</h2>
+            <div class="h-64">
+              <canvas id="salaryAttendanceChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 12: Peak Attendance Window (moved here for balance) -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Peak Attendance Window</h2>
+            <div class="h-64">
+              <canvas id="peakAttendanceChart"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column -->
+        <div class="space-y-6">
+            <!-- Feature 10: Leave Pattern Analytics -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Leave Pattern Analytics</h2>
+            <div class="h-64">
+              <canvas id="leavePatternChart"></canvas>
+            </div>
+            <div class="mt-4 grid grid-cols-2 gap-4">
+              <div class="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+                <p class="text-sm font-medium">Frequent Friday Absences</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">12 employees identified</p>
+              </div>
+              <div class="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                <p class="text-sm font-medium">Extended Weekend Patterns</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">7 employees identified</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 11: Late Arrival Heatmap -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Late Arrival Heatmap</h2>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-center">
+                <thead>
+                  <tr>
+                    <th class="p-2"></th>
+                    <th class="p-2">Mon</th>
+                    <th class="p-2">Tue</th>
+                    <th class="p-2">Wed</th>
+                    <th class="p-2">Thu</th>
+                    <th class="p-2">Fri</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="p-2 text-left">8:00-9:00</td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-red-500/80 rounded" title="12 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-red-500/60 rounded" title="9 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-amber-500/70 rounded" title="7 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-red-500/80 rounded" title="11 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-red-500/90 rounded" title="15 late arrivals"></div></td>
+                  </tr>
+                  <tr>
+                    <td class="p-2 text-left">9:00-10:00</td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-amber-500/50 rounded" title="5 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/40 rounded" title="3 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/30 rounded" title="2 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-amber-500/60 rounded" title="6 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-amber-500/70 rounded" title="7 late arrivals"></div></td>
+                  </tr>
+                  <tr>
+                    <td class="p-2 text-left">10:00-11:00</td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/20 rounded" title="1 late arrival"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/10 rounded" title="0 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/10 rounded" title="0 late arrivals"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/20 rounded" title="1 late arrival"></div></td>
+                    <td class="p-2"><div class="heat-cell w-8 h-8 mx-auto bg-green-500/30 rounded" title="2 late arrivals"></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="flex items-center justify-center mt-4 gap-4">
+              <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-green-500/10 rounded"></div>
+                <span class="text-xs">0-2</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-amber-500/50 rounded"></div>
+                <span class="text-xs">3-7</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-red-500/80 rounded"></div>
+                <span class="text-xs">8+</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 13: AI-Powered HR Insight Summaries -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">AI-Powered HR Insight Summaries</h2>
+            <div class="space-y-4">
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
+                <div class="flex items-start gap-3">
+                  <iconify-icon icon="ph:trend-up-duotone" class="text-blue-500 mt-1"></iconify-icon>
+                  <div>
+                    <p class="font-medium">Department A's attendance consistency improved by 12% this quarter.</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">The implementation of flexible scheduling has shown positive results.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="p-4 bg-amber-50 dark:bg-amber-900/30 rounded-xl">
+                <div class="flex items-start gap-3">
+                  <iconify-icon icon="ph:warning-duotone" class="text-amber-500 mt-1"></iconify-icon>
+                  <div>
+                    <p class="font-medium">Sales team shows 24% higher absenteeism risk than company average.</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Consider reviewing workload distribution and support resources.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl">
+                <div class="flex items-start gap-3">
+                  <iconify-icon icon="ph:check-circle-duotone" class="text-green-500 mt-1"></iconify-icon>
+                  <div>
+                    <p class="font-medium">Engineering department maintains 96% schedule adherence.</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">This is 8% above the organizational benchmark.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 14: Employee Consistency Scorecard -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Employee Consistency Scorecard</h2>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-gray-200 dark:border-gray-700">
+                    <th class="text-left p-3">Employee</th>
+                    <th class="text-center p-3">Attendance</th>
+                    <th class="text-center p-3">Punctuality</th>
+                    <th class="text-center p-3">Consistency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="border-b border-gray-200 dark:border-gray-700">
+                    <td class="p-3">Michael Chen</td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">98%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-green-500 h-2 rounded-full" style="width: 98%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">94%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-green-500 h-2 rounded-full" style="width: 94%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <span class="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs rounded-full">Excellent</span>
+                    </td>
+                  </tr>
+                  <tr class="border-b border-gray-200 dark:border-gray-700">
+                    <td class="p-3">Sarah Johnson</td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">92%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-amber-500 h-2 rounded-full" style="width: 92%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">88%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-amber-500 h-2 rounded-full" style="width: 88%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <span class="px-2 py-1 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 text-xs rounded-full">Good</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="p-3">David Wilson</td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">84%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-red-500 h-2 rounded-full" style="width: 84%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <div class="flex items-center justify-center">
+                        <span class="mr-2">76%</span>
+                        <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div class="bg-red-500 h-2 rounded-full" style="width: 76%"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="p-3 text-center">
+                      <span class="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs rounded-full">Needs Improvement</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Feature 15: Comparative Analytics by Role/Department -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Comparative Analytics by Role/Department</h2>
+            <div class="flex items-center gap-4 mb-4">
+              <button class="px-4 py-2 rounded-lg glass text-sm bg-accent text-white">By Department</button>
+              <button class="px-4 py-2 rounded-lg glass text-sm">By Role</button>
+              <button class="px-4 py-2 rounded-lg glass text-sm">By Seniority</button>
+            </div>
+            <div class="h-64">
+              <canvas id="comparativeChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 16: Predictive Scheduling Assistance -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Predictive Scheduling Assistance</h2>
+            <div class="space-y-4">
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
+                <p class="font-medium">AI Recommendation for Next Week</p>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Based on historical patterns, we recommend adding 2 additional staff to the morning shift on Tuesday and Thursday.</p>
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                  <p class="text-sm font-medium">Optimal Shift Coverage</p>
+                  <p class="text-2xl font-bold">94%</p>
+                </div>
+                <div class="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+                  <p class="text-sm font-medium">Understaffing Risk</p>
+                  <p class="text-2xl font-bold">6%</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 17: Salary Projection Dashboard -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Salary Projection Dashboard</h2>
+            <div class="h-64">
+              <canvas id="salaryProjectionChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 18: Historical Workforce Timeline -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Historical Workforce Timeline</h2>
+            <div class="h-64">
+              <canvas id="historicalTimelineChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Feature 19: Anomaly Detection Panel -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Anomaly Detection Panel</h2>
+            <div class="space-y-4">
+              <div class="flex items-start p-4 bg-red-50 dark:bg-red-900/30 rounded-xl">
+                <iconify-icon icon="ph:warning-circle-duotone" class="text-red-500 mt-1 mr-3"></iconify-icon>
+                <div>
+                  <p class="font-medium">Duplicate attendance logs detected</p>
+                  <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Employee ID 8472 has multiple check-ins within 5 minutes on 3 occasions this week.</p>
+                </div>
+              </div>
+              <div class="flex items-start p-4 bg-amber-50 dark:bg-amber-900/30 rounded-xl">
+                <iconify-icon icon="ph:warning-duotone" class="text-amber-500 mt-1 mr-3"></iconify-icon>
+                <div>
+                  <p class="font-medium">Excessive absences flagged</p>
+                  <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Department C shows 42% higher absence rate compared to last month.</p>
+                </div>
+              </div>
+              <div class="flex items-start p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
+                <iconify-icon icon="ph:info-duotone" class="text-blue-500 mt-1 mr-3"></iconify-icon>
+                <div>
+                  <p class="font-medium">Payroll anomaly detected</p>
+                  <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Unexpected 18% increase in overtime payments this pay period.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature 20: Exportable Analytics Report Generator -->
+          <div class="glass rounded-3xl p-6 shadow-lg reveal">
+            <h2 class="text-xl font-bold mb-4">Exportable Analytics Report Generator</h2>
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <div class="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-xl text-center">
+                  <iconify-icon icon="ph:file-pdf-duotone" class="text-3xl text-blue-500"></iconify-icon>
+                  <p class="font-medium mt-2">PDF Report</p>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">Formal presentation format</p>
+                  <button class="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm ripple">Generate PDF</button>
+                </div>
+                <div class="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl text-center">
+                  <iconify-icon icon="ph:file-csv-duotone" class="text-3xl text-green-500"></iconify-icon>
+                  <p class="font-medium mt-2">CSV Data Export</p>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">Raw data for analysis</p>
+                  <button class="mt-3 px-4 py-2 bg-green-500 text-white rounded-lg text-sm ripple">Export CSV</button>
+                </div>
+              </div>
+              <div class="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
+                <p class="font-medium">Custom Report Options</p>
+                <div class="mt-2 space-y-2">
+                  <div class="flex items-center">
+                    <input type="checkbox" id="include-charts" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3" checked>
+                    <label for="include-charts" class="text-sm text-gray-700 dark:text-gray-300">Include charts and visualizations</label>
+                  </div>
+                  <div class="flex items-center">
+                    <input type="checkbox" id="include-ai-insights" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3" checked>
+                    <label for="include-ai-insights" class="text-sm text-gray-700 dark:text-gray-300">Include AI-generated insights</label>
+                  </div>
+                  <div class="flex items-center">
+                    <input type="checkbox" id="include-raw-data" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-3">
+                    <label for="include-raw-data" class="text-sm text-gray-700 dark:text-gray-300">Include raw data tables</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="pb-8 pt-2 text-xs text-gray-500 dark:text-gray-400 text-center">© IntelliHRTrack • AI Workforce Analytics Dashboard</footer>
+    </main>
+  </div>
+
+  <!-- Settings Modal (copied from dashboard_final for parity) -->
+  <div id="settingsPanel" class="fixed inset-0 hidden items-center justify-center p-4 z-50">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative z-10 w-full max-w-lg glass rounded-2xl p-6 shadow-glow">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold flex items-center gap-2"><iconify-icon icon="ph:sliders-duotone" class="text-accent"></iconify-icon> Customize Layout</h3>
+        <button id="closeSettings" class="p-2 rounded-xl glass hover:shadow-glow"><iconify-icon icon="ph:x-duotone"></iconify-icon></button>
+      </div>
+      <div class="neon-divider my-4"></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Accent color</div>
+          <div class="flex gap-2">
+            <button data-accent="teal" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#14b8a6"></button>
+            <button data-accent="purple" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#8b5cf6"></button>
+            <button data-accent="rose" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#f43f5e"></button>
+            <button data-accent="amber" class="w-10 h-10 rounded-xl border-2 border-white/60" style="background:#f59e0b"></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Background</div>
+          <div class="flex gap-2">
+            <button data-bg="gradient" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Gradient</button>
+            <button data-bg="image" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Image</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Density</div>
+          <div class="flex gap-2">
+            <button data-density="comfortable" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Comfortable</button>
+            <button data-density="compact" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Compact</button>
+            <button data-density="relaxed" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Relaxed</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Motion</div>
+          <label class="flex items-center gap-2 text-sm"><input id="motionToggle" type="checkbox" class="w-4 h-4"> Reduce motion</label>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Glass intensity</div>
+          <input id="glassIntensity" type="range" min="0.3" max="0.9" step="0.05" value="0.6" class="w-full" />
+          <div class="text-xs text-gray-500">Adjust card transparency</div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Sidebar width</div>
+          <div class="flex gap-2 flex-wrap">
+            <button data-sidebar="narrow" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Narrow</button>
+            <button data-sidebar="default" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Default</button>
+            <button data-sidebar="wide" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Wide</button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">High contrast</div>
+          <label class="flex items-center gap-2 text-sm"><input id="contrastToggle" type="checkbox" class="w-4 h-4"> Enable high contrast</label>
+        </div>
+        <div class="space-y-2">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Font size</div>
+          <div class="flex gap-2">
+            <button data-font="small" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Small</button>
+            <button data-font="base" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Base</button>
+            <button data-font="large" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Large</button>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Preferences</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="exportPrefs" class="px-3 py-2 rounded-xl glass hover:shadow-glow flex items-center gap-2"><iconify-icon icon="ph:arrow-square-out-duotone"></iconify-icon> Export</button>
+          <button id="importPrefsBtn" class="px-3 py-2 rounded-xl glass hover:shadow-glow flex items-center gap-2"><iconify-icon icon="ph:arrow-square-in-duotone"></iconify-icon> Import</button>
+          <input id="prefsFile" type="file" accept="application/json" class="hidden" />
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="resetSettings" class="px-3 py-2 rounded-xl glass hover:shadow-glow">Reset</button>
+        <button id="saveSettings" class="px-3 py-2 rounded-xl text-white bg-accent hover:shadow-glow">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortcuts Cheatsheet (copied from dashboard_final) -->
+  <div id="shortcutsModal" class="fixed inset-0 hidden items-center justify-center p-6 z-[76]">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative z-10 w-full max-w-xl glass rounded-2xl p-6">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold flex items-center gap-2"><iconify-icon icon="ph:keyboard-duotone" class="text-accent"></iconify-icon> Keyboard Shortcuts</h3>
+        <button id="closeShortcuts" class="p-2 rounded-xl glass"><iconify-icon icon="ph:x-duotone"></iconify-icon></button>
+      </div>
+      <div class="neon-divider my-4"></div>
+      <ul class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <li class="glass rounded-xl p-3"><strong>Ctrl + K</strong> — Command Palette</li>
+        <li class="glass rounded-xl p-3"><strong>S</strong> — Open Settings</li>
+        <li class="glass rounded-xl p-3"><strong>T</strong> — Toggle Theme</li>
+        <li class="glass rounded-xl p-3"><strong>?</strong> — This Cheatsheet</li>
+        <li class="glass rounded-xl p-3"><strong>G</strong> — Go to Live Feed</li>
+        <li class="glass rounded-xl p-3"><strong>H</strong> — Focus Heatmap</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    // Initialize all charts
+    document.addEventListener('DOMContentLoaded', function() {
+      // Chart 1: Workforce Analytics Dashboard
+      const attendanceCtx = document.getElementById('attendanceChart').getContext('2d');
+      new Chart(attendanceCtx, {
+        type: 'line',
+        data: {
+          labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+          datasets: [
+            {
+              label: 'Attendance Rate',
+              data: [92, 94, 93, 95, 96, 94],
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              tension: 0.3,
+              fill: true
+            },
+            {
+              label: 'Productivity',
+              data: [85, 87, 86, 89, 90, 88],
+              borderColor: '#8b5cf6',
+              backgroundColor: 'rgba(139, 92, 246, 0.1)',
+              tension: 0.3,
+              fill: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: false,
+              min: 80,
+              max: 100
+            }
+          }
+        }
+      });
+
+      // Chart 2: Attendance Trend Analyzer
+      const trendCtx = document.getElementById('attendanceTrendChart').getContext('2d');
+      new Chart(trendCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+          datasets: [
+            {
+              label: 'Present',
+              data: [92, 94, 96, 93],
+              backgroundColor: '#10b981',
+            },
+            {
+              label: 'Absent',
+              data: [5, 4, 2, 5],
+              backgroundColor: '#ef4444',
+            },
+            {
+              label: 'Late',
+              data: [3, 2, 2, 2],
+              backgroundColor: '#f59e0b',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+            }
+          },
+          scales: {
+            x: {
+              stacked: true,
+            },
+            y: {
+              stacked: true,
+              max: 100
+            }
+          }
+        }
+      });
+
+      // Chart 5: Predictive Turnover Visualization
+      const turnoverCtx = document.getElementById('turnoverChart').getContext('2d');
+      new Chart(turnoverCtx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Low Risk', 'Medium Risk', 'High Risk'],
+          datasets: [{
+            data: [65, 25, 10],
+            backgroundColor: [
+              '#10b981',
+              '#f59e0b',
+              '#ef4444'
+            ],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom'
+            }
+          }
+        }
+      });
+
+      // Chart 6: Overtime Utilization Insights
+      const overtimeCtx = document.getElementById('overtimeChart').getContext('2d');
+      new Chart(overtimeCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Sales', 'Marketing', 'Engineering', 'HR', 'Finance'],
+          datasets: [{
+            label: 'Overtime Hours',
+            data: [120, 85, 65, 45, 30],
+            backgroundColor: '#8b5cf6',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+
+      // Chart 7: Departmental Productivity Comparison
+      const productivityCtx = document.getElementById('productivityChart').getContext('2d');
+      new Chart(productivityCtx, {
+        type: 'radar',
+        data: {
+          labels: ['Attendance', 'Punctuality', 'Output', 'Quality', 'Collaboration'],
+          datasets: [
+            {
+              label: 'Sales',
+              data: [85, 78, 92, 80, 75],
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.2)',
+            },
+            {
+              label: 'Engineering',
+              data: [95, 92, 88, 94, 85],
+              borderColor: '#8b5cf6',
+              backgroundColor: 'rgba(139, 92, 246, 0.2)',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              beginAtZero: true,
+              max: 100
+            }
+          }
+        }
+      });
+
+      // Chart 8: Payroll Cost Forecasting
+      const payrollCtx = document.getElementById('payrollChart').getContext('2d');
+      new Chart(payrollCtx, {
+        type: 'line',
+        data: {
+          labels: ['Q1', 'Q2', 'Q3', 'Q4', 'Q1 Forecast', 'Q2 Forecast'],
+          datasets: [{
+            label: 'Payroll Costs ($)',
+            data: [450000, 465000, 480000, 495000, 510000, 525000],
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            borderDash: [5, 5],
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+
+      // Chart 9: Salary-to-Attendance Correlation
+      const salaryAttendanceCtx = document.getElementById('salaryAttendanceChart').getContext('2d');
+      new Chart(salaryAttendanceCtx, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'Employees',
+            data: [
+              {x: 85, y: 45000},
+              {x: 92, y: 52000},
+              {x: 78, y: 38000},
+              {x: 95, y: 65000},
+              {x: 88, y: 48000},
+              {x: 90, y: 55000},
+              {x: 82, y: 42000},
+              {x: 96, y: 72000},
+              {x: 87, y: 46000},
+              {x: 94, y: 58000}
+            ],
+            backgroundColor: '#8b5cf6',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Attendance Rate (%)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Salary ($)'
+              }
+            }
+          }
+        }
+      });
+
+      // Chart 10: Leave Pattern Analytics
+      const leavePatternCtx = document.getElementById('leavePatternChart').getContext('2d');
+      new Chart(leavePatternCtx, {
+        type: 'polarArea',
+        data: {
+          labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+          datasets: [{
+            data: [12, 8, 6, 9, 18],
+            backgroundColor: [
+              '#ef4444',
+              '#f59e0b',
+              '#10b981',
+              '#3b82f6',
+              '#8b5cf6'
+            ],
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+        }
+      });
+
+      // Chart 12: Peak Attendance Window
+      const peakAttendanceCtx = document.getElementById('peakAttendanceChart').getContext('2d');
+      new Chart(peakAttendanceCtx, {
+        type: 'line',
+        data: {
+          labels: ['6 AM', '8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM'],
+          datasets: [{
+            label: 'Employee Count',
+            data: [15, 85, 92, 88, 84, 76, 25],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+
+      // Chart 15: Comparative Analytics
+      const comparativeCtx = document.getElementById('comparativeChart').getContext('2d');
+      new Chart(comparativeCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Sales', 'Marketing', 'Engineering', 'HR', 'Finance'],
+          datasets: [
+            {
+              label: 'Attendance',
+              data: [88, 92, 96, 94, 90],
+              backgroundColor: '#10b981',
+            },
+            {
+              label: 'Productivity',
+              data: [82, 85, 92, 88, 86],
+              backgroundColor: '#8b5cf6',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+        }
+      });
+
+      // Chart 17: Salary Projection
+      const salaryProjectionCtx = document.getElementById('salaryProjectionChart').getContext('2d');
+      new Chart(salaryProjectionCtx, {
+        type: 'line',
+        data: {
+          labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+          datasets: [
+            {
+              label: 'Actual',
+              data: [450000, 465000, 480000, 495000, null, null, null, null],
+              borderColor: '#10b981',
+              tension: 0.3,
+            },
+            {
+              label: 'Projected',
+              data: [null, null, null, 495000, 510000, 525000, 540000, 555000],
+              borderColor: '#8b5cf6',
+              borderDash: [5, 5],
+              tension: 0.3,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+        }
+      });
+
+      // Chart 18: Historical Workforce Timeline
+      const historicalCtx = document.getElementById('historicalTimelineChart').getContext('2d');
+      new Chart(historicalCtx, {
+        type: 'line',
+        data: {
+          labels: ['2019', '2020', '2021', '2022', '2023'],
+          datasets: [
+            {
+              label: 'Workforce Size',
+              data: [120, 135, 142, 155, 168],
+              borderColor: '#10b981',
+              yAxisID: 'y',
+              tension: 0.3,
+            },
+            {
+              label: 'Absenteeism Rate',
+              data: [8.2, 9.5, 7.8, 6.9, 5.4],
+              borderColor: '#ef4444',
+              yAxisID: 'y1',
+              tension: 0.3,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+            },
+            y1: {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              grid: {
+                drawOnChartArea: false,
+              },
+            }
+          }
+        }
+      });
+
+      // Workforce Stability Index Gauge
+      const stabilityCtx = document.getElementById('stabilityGauge').getContext('2d');
+      new Chart(stabilityCtx, {
+        type: 'doughnut',
+        data: {
+          datasets: [{
+            data: [87.4, 12.6],
+            backgroundColor: [
+              '#10b981',
+              '#e5e7eb'
+            ],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '75%',
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              enabled: false
+            }
+          }
+        }
+      });
+
+      // Dark mode toggle
+      const themeToggle = document.getElementById('themeToggle');
+      
+      themeToggle.addEventListener('click', () => {
+        document.documentElement.classList.toggle('dark');
+        
+        // Update icon based on current theme
+        const isDark = document.documentElement.classList.contains('dark');
+        localStorage.setItem('ih_theme', isDark ? 'dark' : 'light');
+      });
+      
+      // Check for saved theme preference or respect OS setting
+      if (localStorage.getItem('ih_theme') === 'dark' || (!('ih_theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+
+      // Clock functionality
+      const headerClock = document.getElementById('headerClock');
+      function updateClock(){ if(headerClock) headerClock.textContent = new Date().toLocaleTimeString(); }
+      setInterval(updateClock, 1000); 
+      updateClock();
+      
+      // Network status
+      const netDot = document.getElementById('netDot');
+      function updateNet(){ 
+        const on = navigator.onLine; 
+        if(netDot){ 
+          netDot.classList.toggle('bg-green-500', on); 
+          netDot.classList.toggle('bg-rose-500', !on); 
+          netDot.title = on ? 'Online' : 'Offline'; 
+        } 
+      }
+      window.addEventListener('online', updateNet); 
+      window.addEventListener('offline', updateNet); 
+      updateNet();
+
+      // Add micro-interactions
+      Array.from(document.querySelectorAll('.glass')).forEach(el=> el.classList.add('hover-lift'));
+      Array.from(document.querySelectorAll('button')).forEach(el=> el.classList.add('ripple'));
+
+      // Add reveal animations
+      const revealables = Array.from(document.querySelectorAll('.reveal'));
+      const io = new IntersectionObserver(entries=>{
+        entries.forEach(en=>{ if(en.isIntersecting){ en.target.classList.add('in-view'); io.unobserve(en.target); } });
+      }, { threshold: 0.12 });
+      revealables.forEach(el=> io.observe(el));
+    });
+  </script>
+
+  <script>
+    // Sidebar wiring: restore width, add resizer, mobile drawer and theme persistence
+    document.addEventListener('DOMContentLoaded', function() {
+      const aside = document.querySelector('aside[data-resizable]');
+      const main = document.querySelector('main');
+
+      // restore sidebar width
+      try {
+        const saved = localStorage.getItem('ih_sidebar_w');
+        if (aside && saved) {
+          aside.style.width = saved + 'px';
+          if (main) main.style.marginLeft = saved + 'px';
+        }
+      } catch (e) {}
+
+      // resizer
+      if (aside) {
+        const r = document.createElement('div');
+        r.className = 'hidden lg:block';
+        Object.assign(r.style, { position: 'absolute', top: '0', right: '0', width: '8px', height: '100%', cursor: 'ew-resize', zIndex: 60 });
+        aside.style.position = 'fixed';
+        aside.appendChild(r);
+
+        let drag = false;
+        r.addEventListener('mousedown', ()=>{ drag = true; document.body.style.userSelect = 'none'; });
+        window.addEventListener('mousemove', (e)=>{
+          if(!drag) return;
+          const min=220, max=420; const newW = Math.min(max, Math.max(min, e.clientX));
+          aside.style.width = newW + 'px';
+          if(main) main.style.marginLeft = newW + 'px';
+        });
+        window.addEventListener('mouseup', ()=>{ if(drag){ drag=false; document.body.style.userSelect=''; try{ localStorage.setItem('ih_sidebar_w', parseInt(aside.style.width)); }catch(e){} } });
+      }
+
+      // theme persistence: reuse existing toggle if present
+      const themeToggle = document.getElementById('themeToggle');
+      const sidebarThemeToggle = document.getElementById('sidebarThemeToggle');
+      function applyTheme(t){ if(t==='dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }
+      try { const s = localStorage.getItem('ih_theme'); if(s) applyTheme(s); }
+      catch(e){}
+      function toggleTheme(){ const isDark = document.documentElement.classList.toggle('dark'); try{ localStorage.setItem('ih_theme', isDark ? 'dark' : 'light'); }catch(e){} }
+      if(themeToggle) themeToggle.addEventListener('click', toggleTheme);
+      if(sidebarThemeToggle) sidebarThemeToggle.addEventListener('click', toggleTheme);
+
+      // mobile drawer button inserted into hero header
+      const header = document.querySelector('header');
+      if(header && aside){
+        const mobileBtn = document.createElement('button');
+        mobileBtn.className = 'lg:hidden p-2 rounded-md glass mr-3';
+        mobileBtn.innerHTML = '<svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>';
+        header.insertBefore(mobileBtn, header.firstChild);
+        mobileBtn.addEventListener('click', ()=>{
+          const overlay = document.createElement('div'); overlay.className='fixed inset-0 z-50 bg-black/40 flex lg:hidden';
+          const panel = document.createElement('aside'); panel.className='w-72 h-full overflow-y-auto p-4 bg-white dark:bg-gray-800';
+          const brand = aside.querySelector('div'); const nav = aside.querySelector('nav'); if(brand) panel.appendChild(brand.cloneNode(true)); if(nav) panel.appendChild(nav.cloneNode(true));
+          const foot = document.createElement('div'); foot.className='mt-4 p-2'; const footBtn = document.createElement('button'); footBtn.className='w-full px-3 py-2 rounded-xl glass'; footBtn.textContent='Toggle Theme'; footBtn.addEventListener('click', ()=> toggleTheme()); foot.appendChild(footBtn); panel.appendChild(foot);
+          const closeBtn = document.createElement('button'); closeBtn.className='absolute top-4 right-4 p-2 rounded-full glass'; closeBtn.innerHTML='<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+          closeBtn.addEventListener('click', ()=> document.body.removeChild(overlay)); overlay.appendChild(panel); overlay.appendChild(closeBtn); overlay.addEventListener('click', (ev)=>{ if(ev.target===overlay) document.body.removeChild(overlay); }); document.body.appendChild(overlay);
+        });
+      }
+    });
+  </script>
+  <script>
+    // Sidebar active link highlighter (matches current filename)
+    (function(){
+      try{
+        const current = location.pathname.split('/').pop();
+        const links = document.querySelectorAll('aside nav a[href]');
+        links.forEach(a=>{
+          const href = a.getAttribute('href') || '';
+          const name = href.split('/').pop();
+          if(name === current){ a.classList.add('ring','ring-white/30','bg-accent/10'); a.setAttribute('aria-current','page'); }
+        });
+      }catch(e){}
+    })();
+  </script>
+</body>
+</html>
