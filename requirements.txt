@@ -1,0 +1,80 @@
+# Think Web - Backend Dependencies
+# FastAPI and Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+cryptography==41.0.7
+
+# Biometric Processing
+opencv-python==4.8.1.78
+pillow==10.1.0
+numpy==1.26.2
+# InsightFace for face recognition (install separately or use alternative)
+# insightface==0.7.3
+# face-recognition==1.3.0  # Alternative: dlib-based face recognition
+
+# Data Processing & Analytics
+pandas==2.1.3
+numpy==1.26.2
+scikit-learn==1.3.2
+# prophet==1.1.5  # For time series forecasting (optional)
+# xgboost==2.0.2  # For ML models (optional)
+
+# Background Tasks
+celery==5.3.4
+redis==5.0.1
+
+# API & WebSocket
+websockets==12.0
+python-socketio==5.10.0
+
+# File Handling
+python-magic==0.4.27
+openpyxl==3.1.2  # For Excel export
+reportlab==4.0.7  # For PDF generation
+
+# Environment & Configuration
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Monitoring & Logging
+structlog==23.2.0
+
+# Date/Time Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# HTTP Client
+httpx==0.25.2
+aiohttp==3.9.1
+
+# Validation
+email-validator==2.1.0
+
+# CORS
+python-cors==1.0.0  # Handled by FastAPI middleware
+
+# Optional: Machine Learning Libraries
+# tensorflow==2.15.0  # If using TensorFlow models
+# torch==2.1.1  # If using PyTorch models
+
+
+
+
+
